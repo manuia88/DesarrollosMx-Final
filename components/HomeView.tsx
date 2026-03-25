@@ -145,12 +145,13 @@ export default function HomeView({
               style={{
                 borderRadius:'var(--r)',overflow:'hidden',cursor:'pointer',
                 position:'relative',height:'170px',display:'flex',
-                alignItems:'flex-end',transition:'transform .18s',
+                transition:'transform .18s',
                 background:z.bg,
                 border: z.other ? '1px solid var(--bd)' : undefined,
                 flexDirection: z.other ? 'column' : undefined,
                 justifyContent: z.other ? 'center' : undefined,
                 alignItems: z.other ? 'center' : 'flex-end',
+                
               }}
               onMouseEnter={e => (e.currentTarget.style.transform='translateY(-2px)')}
               onMouseLeave={e => (e.currentTarget.style.transform='translateY(0)')}
