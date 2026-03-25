@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Navbar from '@/components/Navbar'
 import HomeView from '@/components/HomeView'
+import ExplorarView from '@/components/ExplorarView'
 
 interface Project {
   id: string
@@ -26,6 +27,7 @@ interface Project {
 
 export default function HomePage() {
   const [view, setView] = useState('home')
+  const [selectedId, setSelectedId] = useState<string | undefined>()
   const [projects, setProjects] = useState<Project[]>([])
   const supabase = createClient()
 
@@ -41,6 +43,7 @@ export default function HomePage() {
 
   function handleNavigate(v: string, id?: string) {
     setView(v)
+    setSelectedId(id)
     window.scrollTo(0, 0)
   }
 
@@ -54,18 +57,25 @@ export default function HomePage() {
       }}>
         DesarrollosMX v5 · Prototipo completo
       </div>
+
       <Navbar onNavigate={handleNavigate} />
+
       {view === 'home' && (
         <HomeView projects={projects} onNavigate={handleNavigate} />
       )}
       {view === 'explorar' && (
-        <div style={{padding:'40px',fontFamily:'var(--sans)'}}>
-          Vista Explorar — Fase 2
-        </div>
+        <ExplorarView onNavigate={handleNavigate} />
       )}
       {view === 'detail' && (
         <div style={{padding:'40px',fontFamily:'var(--sans)'}}>
           Ficha de Proyecto — Fase 3
+          <br />
+          <button
+            onClick={() => handleNavigate('explorar')}
+            style={{marginTop:'16px',padding:'8px 16px',cursor:'pointer'}}
+          >
+            ← Regresar
+          </button>
         </div>
       )}
     </>
