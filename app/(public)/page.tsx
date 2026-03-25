@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import Navbar from '@/components/Navbar'
 import HomeView from '@/components/HomeView'
 import ExplorarView from '@/components/ExplorarView'
+import DetailView from '@/components/DetailView'
 
 interface Project {
   id: string
@@ -67,16 +68,7 @@ export default function HomePage() {
         <ExplorarView onNavigate={handleNavigate} />
       )}
       {view === 'detail' && (
-        <div style={{padding:'40px',fontFamily:'var(--sans)'}}>
-          Ficha de Proyecto — Fase 3
-          <br />
-          <button
-            onClick={() => handleNavigate('explorar')}
-            style={{marginTop:'16px',padding:'8px 16px',cursor:'pointer'}}
-          >
-            ← Regresar
-          </button>
-        </div>
+        <DetailView projectId={selectedId} onNavigate={handleNavigate} />
       )}
     </>
   )
