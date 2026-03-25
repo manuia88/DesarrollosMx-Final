@@ -1,26 +1,16 @@
-@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap');
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --dk:#212D30;--mid:rgba(33,45,48,.52);--dim:rgba(33,45,48,.26);
+  --wh:#FFF;--bg:#F7F6F4;--bg2:#EEECEA;
+  --bd:rgba(33,45,48,.12);--bd2:rgba(33,45,48,.06);
+  --gr:#1B4332;--gr2:#2D6A4F;--gr-bg:#E6EFE9;
+  --bl:#1A4A9A;--bl-bg:#EBF0FA;
+  --am:#92400E;--am-bg:#FEF3C7;
+  --rd:#991B1B;--rd-bg:#FEF2F2;
+  --sans:'DM Sans',system-ui,sans-serif;
+  --r:10px;--rp:9999px;--rs:6px;
 }
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--dk);-webkit-font-smoothing:antialiased;font-size:14px}
