@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import PreciosView from './PreciosView'
 import { createClient } from '@/lib/supabase/client'
 
 interface Project {
@@ -28,6 +29,7 @@ interface Project {
   historial_precios?: {date: string; precio: number}[]
   amenidades?: string[]
   destacado?: boolean
+  comision_pct?: number
   desarrolladoras?: {
     nombre: string
     logo_url?: string
@@ -53,10 +55,17 @@ export default function DetailView({
   const [roiVal, setRoiVal] = useState(8)
   const [engancheVal, setEngancheVal] = useState(20)
   const [openFaq, setOpenFaq] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<string | null>(null)
   const supabase = createClient()
 
   useEffect(() => {
     if (!projectId) return
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        supabase.from('profiles').select('role').eq('user_id', user.id).single()
+          .then(({ data }) => { if (data) setUserRole(data.role) })
+      }
+    })
     supabase
       .from('projects')
       .select(`*, desarrolladoras(nombre, logo_url, verificacion_constitucion, verificacion_antecedentes, verificacion_profeco, proyectos_entregados, unidades_vendidas, ano_fundacion), fotos(url, is_hero, orden)`)
@@ -351,6 +360,19 @@ export default function DetailView({
                 </>
               )}
 
+              {/* COMISIÓN — solo visible para asesores */}
+              {(userRole === 'asesor' || userRole === 'superadmin' || userRole === 'desarrollador') && project.comision_pct && (
+                <div style={{background:'var(--gr-bg)',border:'1px solid rgba(27,67,50,.2)',borderRadius:'var(--r)',padding:'14px 16px',marginBottom:'18px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div>
+                    <div style={{fontSize:'12px',fontWeight:600,color:'var(--gr)',marginBottom:'2px'}}>💰 Comisión para asesores</div>
+                    <div style={{fontSize:'11px',color:'var(--mid)'}}>Porcentaje sobre precio de venta · {project.comision_pct}% fijo</div>
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    <div style={{fontSize:'18px',fontWeight:600,color:'var(--gr)'}}>Desde ${Math.round(project.precio_desde * (project.comision_pct / 100)).toLocaleString('es-MX')}</div>
+                    <div style={{fontSize:'10px',color:'var(--mid)'}}>sobre precio base</div>
+                  </div>
+                </div>
+              )}
               {/* DESARROLLADORA */}
               {dev && (
                 <div style={{background:'var(--bg2)',borderRadius:'var(--r)',padding:'16px 18px',marginBottom:'18px'}}>
@@ -430,9 +452,7 @@ export default function DetailView({
 
           {/* TAB: LISTA DE PRECIOS */}
           {activeTab === 'precios' && (
-            <div style={{padding:'20px 0',color:'var(--mid)',fontSize:'13px'}}>
-              Lista de precios — Fase 4
-            </div>
+            <PreciosView projectId={project.id} />
           )}
 
           {/* TAB: AVANCE DE OBRA */}
