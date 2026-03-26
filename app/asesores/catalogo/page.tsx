@@ -34,6 +34,9 @@ interface ProjectWithScore extends Project {
   unidades_vendidas: number
   absorcion_pct: number
   meses_sold_out: number
+  ventas_por_mes: number
+  tendencia: string
+  fecha_sold_out: string | null
   precio_m2: number
   precio_m2_zona: number
   delta_zona_pct: number
@@ -76,14 +79,34 @@ export default function CatalogoPage() {
 
       const wishlistIds = new Set((wishlist || []).map(w => w.project_id))
 
+      // Cargar velocity real por proyecto
+      const velocityMap: Record<string, {ventas_por_mes:number,meses_para_sold_out:number,tendencia:string,fecha_estimada_sold_out:string|null}> = {}
+      await Promise.all(projIds.map(async (pid) => {
+        try {
+          const { data: vel } = await supabase.rpc('get_project_velocity', { p_project_id: pid })
+          if (vel && vel.length > 0) {
+            velocityMap[pid] = {
+              ventas_por_mes: vel[0].ventas_por_mes || 0,
+              meses_para_sold_out: vel[0].meses_para_sold_out || 99,
+              tendencia: vel[0].tendencia || 'estable',
+              fecha_estimada_sold_out: vel[0].fecha_estimada_sold_out || null,
+            }
+          }
+        } catch { /* silencioso */ }
+      }))
+
       const withScore: ProjectWithScore[] = projs.map(p => {
         const uds = (unidades || []).filter(u => u.project_id === p.id)
         const disponibles = uds.filter(u => u.estado === 'disponible').length
         const vendidos = uds.filter(u => u.estado === 'vendido').length
+        const reservados = uds.filter(u => u.estado === 'reservado').length
         const total = uds.length || p.total_unidades || 1
-        const absorcion = total > 0 ? (vendidos / total) * 100 : 0
-        const meses_sold_out = absorcion > 0 ? Math.round((disponibles / total) / (absorcion / 100 / 4)) : 99
+        const absorcion = total > 0 ? ((vendidos + reservados) / total) * 100 : 0
         const precio_m2 = p.m2_min > 0 ? Math.round(p.precio_desde / p.m2_min) : 0
+
+        // Velocity from RPC (will be enriched below)
+        const vel = velocityMap[p.id] || { ventas_por_mes: 0, meses_para_sold_out: 99, tendencia: 'estable', fecha_estimada_sold_out: null }
+        const meses_sold_out = Math.min(vel.meses_para_sold_out, 99)
 
         // Score atractivo 1-10
         const score_absorcion = Math.min(10, absorcion / 2)
@@ -109,7 +132,10 @@ export default function CatalogoPage() {
           unidades_disponibles: disponibles,
           unidades_vendidas: vendidos,
           absorcion_pct: Math.round(absorcion),
-          meses_sold_out: Math.min(meses_sold_out, 99),
+          meses_sold_out,
+          ventas_por_mes: vel.ventas_por_mes,
+          tendencia: vel.tendencia,
+          fecha_sold_out: vel.fecha_estimada_sold_out,
           precio_m2,
           precio_m2_zona: 0, // se calcula después
           delta_zona_pct: 0, // se calcula después
@@ -341,11 +367,21 @@ export default function CatalogoPage() {
                     <span style={{fontSize:'11px',fontWeight:700,color:'var(--dk)'}}>{p.unidades_disponibles}</span>
                   </div>
 
-                  {/* Sold out */}
+                  {/* Velocidad + Sold out */}
+                  {p.ventas_por_mes > 0 && (
+                    <div style={{display:'flex',alignItems:'center',gap:'5px',background:'var(--bg2)',borderRadius:'var(--rs)',padding:'4px 10px'}}>
+                      <span style={{fontSize:'10px',color:'var(--mid)'}}>Velocidad:</span>
+                      <span style={{fontSize:'11px',fontWeight:700,color:'var(--dk)'}}>{p.ventas_por_mes}/mes</span>
+                      <span style={{fontSize:'9px',color: p.tendencia === 'acelerando' ? 'var(--gr)' : p.tendencia === 'desacelerando' ? '#DC2626' : 'var(--dim)'}}>
+                        {p.tendencia === 'acelerando' ? '🔥 Acelerando' : p.tendencia === 'desacelerando' ? '⚠️ Desacelerando' : '→ Estable'}
+                      </span>
+                    </div>
+                  )}
                   {p.meses_sold_out < 99 && (
-                    <div style={{display:'flex',alignItems:'center',gap:'5px',background: p.meses_sold_out <= 3 ? '#FEE2E2' : '#FEF9C3',borderRadius:'var(--rs)',padding:'4px 10px'}}>
-                      <span style={{fontSize:'10px',color: p.meses_sold_out <= 3 ? '#DC2626' : '#A16207'}}>Sold out est.:</span>
-                      <span style={{fontSize:'11px',fontWeight:700,color: p.meses_sold_out <= 3 ? '#DC2626' : '#A16207'}}>{p.meses_sold_out} meses</span>
+                    <div style={{display:'flex',alignItems:'center',gap:'5px',background: p.meses_sold_out <= 3 ? '#FEE2E2' : p.meses_sold_out <= 6 ? '#FEF9C3' : 'var(--bg2)',borderRadius:'var(--rs)',padding:'4px 10px'}}>
+                      <span style={{fontSize:'10px',color: p.meses_sold_out <= 3 ? '#DC2626' : p.meses_sold_out <= 6 ? '#A16207' : 'var(--mid)'}}>Sold out:</span>
+                      <span style={{fontSize:'11px',fontWeight:700,color: p.meses_sold_out <= 3 ? '#DC2626' : p.meses_sold_out <= 6 ? '#A16207' : 'var(--dk)'}}>{p.meses_sold_out} meses</span>
+                      {p.fecha_sold_out && <span style={{fontSize:'9px',color:'var(--dim)'}}>~{new Date(p.fecha_sold_out).toLocaleDateString('es-MX',{month:'short',year:'numeric'})}</span>}
                     </div>
                   )}
 
