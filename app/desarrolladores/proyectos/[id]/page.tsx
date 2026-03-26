@@ -35,10 +35,10 @@ export default function EditarProyectoPage({ params }: { params: Promise<{ id: s
     { name:'Entrega', date:'' },
   ])
 
-  const [esquemas, setEsquemas] = useState<{nombre:string,enganche_pct:number,mensualidades_num:number,pct_mensualidades:number,pct_pago_final:number,acepta_credito:boolean,descuento_contado_pct:number,notas:string,es_default:boolean,id?:string}[]>([])
+  const [esquemas, setEsquemas] = useState<{nombre:string,enganche_pct:number,mensualidades_num:number,pct_mensualidades:number,pct_pago_final:number,acepta_credito:boolean,descuento_contado_pct:number,ajuste_precio_pct:number,notas:string,es_default:boolean,id?:string}[]>([])
 
   function addEsquema() {
-    setEsquemas(prev => [...prev, { nombre:'',enganche_pct:20,mensualidades_num:18,pct_mensualidades:40,pct_pago_final:40,acepta_credito:true,descuento_contado_pct:0,notas:'',es_default:prev.length===0 }])
+    setEsquemas(prev => [...prev, { nombre:'',enganche_pct:20,mensualidades_num:18,pct_mensualidades:40,pct_pago_final:40,acepta_credito:true,descuento_contado_pct:0,ajuste_precio_pct:0,notas:'',es_default:prev.length===0 }])
   }
   function removeEsquema(idx:number) { setEsquemas(prev => prev.filter((_,i)=>i!==idx)) }
   function updEsquema(idx:number,key:string,val:unknown) { setEsquemas(prev => prev.map((e,i)=>i===idx?{...e,[key]:val}:e)) }
@@ -88,6 +88,7 @@ export default function EditarProyectoPage({ params }: { params: Promise<{ id: s
           acepta_credito: (e.acepta_credito as boolean) ?? true,
           descuento_contado_pct: (e.descuento_contado_pct as number) || 0,
           notas: (e.notas as string) || '',
+          ajuste_precio_pct: (e.ajuste_precio_pct as number) || 0,
           es_default: (e.es_default as boolean) || false,
         })))
       }
@@ -153,6 +154,7 @@ export default function EditarProyectoPage({ params }: { params: Promise<{ id: s
           pct_pago_final: e.pct_pago_final,
           acepta_credito: e.acepta_credito,
           descuento_contado_pct: e.descuento_contado_pct,
+          ajuste_precio_pct: e.ajuste_precio_pct,
           es_default: e.es_default,
           notas: e.notas || null,
           orden: i,
@@ -365,7 +367,8 @@ export default function EditarProyectoPage({ params }: { params: Promise<{ id: s
                 {esquemas.length < 4 && <button onClick={addEsquema} style={{fontFamily:'var(--sans)',fontSize:'11px',padding:'6px 14px',borderRadius:'var(--rp)',background:'var(--dk)',color:'#fff',border:'none',cursor:'pointer'}}>+ Agregar</button>}
               </div>
               {esquemas.map((esq,idx) => {
-                const precio = parseFloat(form.precio_desde) || 0
+                const precioBase = parseFloat(form.precio_desde) || 0
+                const precio = Math.round(precioBase * (1 + esq.ajuste_precio_pct / 100))
                 const engMonto = Math.round(precio*esq.enganche_pct/100)
                 const resto = precio - engMonto
                 const mensMonto = esq.mensualidades_num>0 ? Math.round(resto*esq.pct_mensualidades/100/esq.mensualidades_num) : 0
@@ -389,12 +392,17 @@ export default function EditarProyectoPage({ params }: { params: Promise<{ id: s
                       <div><label style={labelStyle}>Mensualidades (#)</label><input style={inputStyle} type="number" value={esq.mensualidades_num} onChange={e=>updEsquema(idx,'mensualidades_num',+e.target.value)} min="0" max="60" /></div>
                       <div><label style={labelStyle}>Descuento contado (%)</label><input style={inputStyle} type="number" value={esq.descuento_contado_pct} onChange={e=>updEsquema(idx,'descuento_contado_pct',+e.target.value)} min="0" max="30" /></div>
                     </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'10px'}}>
+                      <div><label style={labelStyle}>Ajuste precio (%)</label><input style={inputStyle} type="number" value={esq.ajuste_precio_pct} onChange={e=>updEsquema(idx,'ajuste_precio_pct',+e.target.value)} min="-20" max="20" step="0.5" /><div style={{fontSize:'9px',color:'var(--dim)',marginTop:'3px'}}>{esq.ajuste_precio_pct < 0 ? '↓ Descuento sobre lista' : esq.ajuste_precio_pct > 0 ? '↑ Recargo sobre lista' : '= Precio lista'}</div></div>
+                    </div>
                     <div style={{display:'flex',gap:'14px',alignItems:'center',marginBottom:'10px'}}>
                       <label style={{display:'flex',alignItems:'center',gap:'6px',fontSize:'12px',color:'var(--dk)',cursor:'pointer'}}><input type="checkbox" checked={esq.acepta_credito} onChange={e=>updEsquema(idx,'acepta_credito',e.target.checked)} /> Acepta crédito</label>
                       <input style={{...inputStyle,flex:1}} value={esq.notas} onChange={e=>updEsquema(idx,'notas',e.target.value)} placeholder="Notas (opcional)" />
                     </div>
                     {esq.enganche_pct+esq.pct_mensualidades+esq.pct_pago_final!==100 && <div style={{fontSize:'11px',color:'#DC2626',background:'#FEE2E2',padding:'6px 10px',borderRadius:'var(--rs)',marginBottom:'8px'}}>⚠️ Debe sumar 100% — actual: {esq.enganche_pct+esq.pct_mensualidades+esq.pct_pago_final}%</div>}
                     {precio>0 && (
+                      <div>
+                      {esq.ajuste_precio_pct !== 0 && <div style={{fontSize:'11px',marginBottom:'8px',padding:'5px 10px',borderRadius:'var(--rs)',background:esq.ajuste_precio_pct<0?'var(--gr-bg)':'#FEE2E2',color:esq.ajuste_precio_pct<0?'var(--gr)':'#DC2626'}}>Precio ajustado: ${precio.toLocaleString('es-MX')} ({esq.ajuste_precio_pct>0?'+':''}{esq.ajuste_precio_pct}% vs lista)</div>}
                       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}}>
                         {[{l:'Enganche',v:`$${engMonto.toLocaleString('es-MX')}`,s:`${esq.enganche_pct}%`},{l:'Mensualidades',v:esq.mensualidades_num>0?`$${mensMonto.toLocaleString('es-MX')}/mes`:'—',s:esq.mensualidades_num>0?`${esq.mensualidades_num} pagos`:'Sin mensualidades'},{l:'Pago final',v:`$${finalMonto.toLocaleString('es-MX')}`,s:'Al escriturar'}].map((item,i) => (
                           <div key={i} style={{background:'var(--bg2)',borderRadius:'var(--rs)',padding:'8px',textAlign:'center'}}>
@@ -403,6 +411,7 @@ export default function EditarProyectoPage({ params }: { params: Promise<{ id: s
                             <div style={{fontSize:'9px',color:'var(--dim)'}}>{item.s}</div>
                           </div>
                         ))}
+                      </div>
                       </div>
                     )}
                   </div>

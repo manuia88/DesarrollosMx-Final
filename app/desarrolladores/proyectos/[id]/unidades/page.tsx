@@ -205,6 +205,31 @@ export default function UnidadesPage({ params }: { params: Promise<{ id: string 
     const { data } = await supabase.from('unidades').select('*').eq('project_id', id).order('nivel').order('unit_id_display')
     setUnidades((data as Unidad[]) || [])
     calcStats((data as Unidad[]) || [])
+
+    // Generar precios_unidad automáticamente si hay esquemas
+    try {
+      const { data: esquemas } = await supabase.from('esquemas_pago').select('id, ajuste_precio_pct').eq('project_id', id)
+      if (esquemas && esquemas.length > 0 && data && data.length > 0) {
+        // Borrar existentes y regenerar
+        const unidadIds = data.map((u: { id: string }) => u.id)
+        await supabase.from('precios_unidad').delete().in('unidad_id', unidadIds)
+        const rows: { unidad_id: string; esquema_id: string; precio: number }[] = []
+        for (const u of data as { id: string; precio: number }[]) {
+          for (const e of esquemas) {
+            rows.push({
+              unidad_id: u.id,
+              esquema_id: e.id,
+              precio: Math.round(u.precio * (1 + (e.ajuste_precio_pct || 0) / 100))
+            })
+          }
+        }
+        // Insert en batches de 500
+        for (let i = 0; i < rows.length; i += 500) {
+          await supabase.from('precios_unidad').insert(rows.slice(i, i + 500))
+        }
+      }
+    } catch { /* silencioso */ }
+
     setSaving(false)
   }
 

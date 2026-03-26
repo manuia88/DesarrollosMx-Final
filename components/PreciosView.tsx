@@ -75,7 +75,18 @@ export default function PreciosView({ projectId }: { projectId: string }) {
   const [selectedProto, setSelectedProto] = useState<string | null>(null)
   const [selectedFloor, setSelectedFloor] = useState<string | null>(null)
   const [selectedUnit, setSelectedUnit] = useState<Unidad | null>(null)
+  const [esquemas, setEsquemas] = useState<{id:string,nombre:string,ajuste_precio_pct:number,es_default:boolean}[]>([])
+  const [selectedEsquema, setSelectedEsquema] = useState<string>('')
+  const [preciosMap, setPreciosMap] = useState<Record<string, Record<string, number>>>({})
   const supabase = createClient()
+
+  // Precio según esquema seleccionado
+  function getPrice(u: Unidad): number {
+    if (selectedEsquema && preciosMap[u.id]?.[selectedEsquema]) {
+      return preciosMap[u.id][selectedEsquema]
+    }
+    return u.precio
+  }
 
   useEffect(() => {
     async function load() {
@@ -87,6 +98,27 @@ export default function PreciosView({ projectId }: { projectId: string }) {
       setUnidades((u as Unidad[]) || [])
       setPrototipos((p as Prototipo[]) || [])
       if (p && p.length > 0) setSelectedProto(p[0].nombre)
+
+      // Cargar esquemas de pago
+      const { data: esqs } = await supabase.from('esquemas_pago').select('id, nombre, ajuste_precio_pct, es_default').eq('project_id', projectId).order('orden')
+      if (esqs && esqs.length > 0) {
+        setEsquemas(esqs as typeof esquemas)
+      }
+
+      // Cargar precios por esquema
+      if (u && u.length > 0) {
+        const uIds = u.map((x: {id:string}) => x.id)
+        const { data: pu } = await supabase.from('precios_unidad').select('unidad_id, esquema_id, precio').in('unidad_id', uIds)
+        if (pu) {
+          const map: Record<string, Record<string, number>> = {}
+          for (const row of pu as {unidad_id:string,esquema_id:string,precio:number}[]) {
+            if (!map[row.unidad_id]) map[row.unidad_id] = {}
+            map[row.unidad_id][row.esquema_id] = row.precio
+          }
+          setPreciosMap(map)
+        }
+      }
+
       setLoading(false)
     }
     load()
@@ -194,7 +226,20 @@ export default function PreciosView({ projectId }: { projectId: string }) {
             ))}
           </div>
 
-          {/* TABLA */}
+          {/* ESQUEMAS DE PAGO */}
+      {esquemas.length > 0 && (
+        <div style={{display:'flex',gap:'6px',alignItems:'center',marginBottom:'14px',flexWrap:'wrap'}}>
+          <span style={{fontSize:'11px',color:'var(--mid)',marginRight:'4px'}}>Precio:</span>
+          <button onClick={() => setSelectedEsquema('')} style={{fontFamily:'var(--sans)',fontSize:'11px',padding:'5px 12px',borderRadius:'var(--rp)',border:!selectedEsquema?'2px solid var(--dk)':'1px solid var(--bd)',background:!selectedEsquema?'var(--dk)':'var(--wh)',color:!selectedEsquema?'#fff':'var(--mid)',cursor:'pointer',fontWeight:!selectedEsquema?600:400}}>Lista</button>
+          {esquemas.map(e => (
+            <button key={e.id} onClick={() => setSelectedEsquema(e.id)} style={{fontFamily:'var(--sans)',fontSize:'11px',padding:'5px 12px',borderRadius:'var(--rp)',border:selectedEsquema===e.id?'2px solid var(--gr)':'1px solid var(--bd)',background:selectedEsquema===e.id?'var(--gr-bg)':'var(--wh)',color:selectedEsquema===e.id?'var(--gr)':'var(--mid)',cursor:'pointer',fontWeight:selectedEsquema===e.id?600:400}}>
+              {e.nombre}{e.ajuste_precio_pct !== 0 ? ` (${e.ajuste_precio_pct > 0 ? '+' : ''}${e.ajuste_precio_pct}%)` : ''}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* TABLA */}
           <div style={{overflowX:'auto',borderRadius:'var(--r)',border:'1px solid var(--bd)',marginBottom:'8px'}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px',whiteSpace:'nowrap'}}>
               <thead>
@@ -274,7 +319,7 @@ export default function PreciosView({ projectId }: { projectId: string }) {
                         </td>
                         <td style={{padding:'10px',borderBottom:'1px solid var(--bd2)'}}>{u.bodega ? <span style={{fontSize:'11px',color:'var(--gr)',fontWeight:500}}>Incluida</span> : <span style={{fontSize:'11px',color:'var(--dim)'}}>No</span>}</td>
                         <td style={{padding:'10px',borderBottom:'1px solid var(--bd2)'}}><span style={{fontSize:'11px',fontWeight:500,color: u.ubicacion==='Exterior' ? 'var(--bl)' : 'var(--mid)'}}>{u.ubicacion||'—'}</span></td>
-                        <td style={{padding:'10px',borderBottom:'1px solid var(--bd2)',borderLeft:'1px solid var(--bd2)'}}><span style={{fontSize:'13px',fontWeight:500,color:'var(--gr)'}}>${u.precio.toLocaleString('es-MX')}</span></td>
+                        <td style={{padding:'10px',borderBottom:'1px solid var(--bd2)',borderLeft:'1px solid var(--bd2)'}}><span style={{fontSize:'13px',fontWeight:500,color:'var(--gr)'}}>${getPrice(u).toLocaleString('es-MX')}</span></td>
                         <td style={{padding:'10px',borderBottom:'1px solid var(--bd2)'}}>
                           <span style={{display:'inline-block',fontSize:'10px',fontWeight:500,padding:'2px 8px',borderRadius:'var(--rp)',...estColor}}>
                             {u.estado.charAt(0).toUpperCase()+u.estado.slice(1)}
@@ -532,7 +577,7 @@ export default function PreciosView({ projectId }: { projectId: string }) {
                           <td style={{padding:'10px',borderBottom:'1px solid var(--bd2)',borderLeft:'1px solid var(--bd2)'}}><span style={{display:'inline-flex',alignItems:'center',gap:'3px',fontSize:'10px',fontWeight:600,padding:'2px 8px',borderRadius:'var(--rp)',whiteSpace:'nowrap',...cajColor}}>● {caj.label}</span></td>
                           <td style={{padding:'10px',borderBottom:'1px solid var(--bd2)'}}>{u.bodega?<span style={{fontSize:'11px',color:'var(--gr)',fontWeight:500}}>Incluida</span>:<span style={{fontSize:'11px',color:'var(--dim)'}}>No</span>}</td>
                           <td style={{padding:'10px',borderBottom:'1px solid var(--bd2)'}}><span style={{fontSize:'11px',fontWeight:500,color:u.ubicacion==='Exterior'?'var(--bl)':'var(--mid)'}}>{u.ubicacion||'—'}</span></td>
-                          <td style={{padding:'10px',borderBottom:'1px solid var(--bd2)',borderLeft:'1px solid var(--bd2)'}}><span style={{fontSize:'13px',fontWeight:500,color:'var(--gr)'}}>${u.precio.toLocaleString('es-MX')}</span></td>
+                          <td style={{padding:'10px',borderBottom:'1px solid var(--bd2)',borderLeft:'1px solid var(--bd2)'}}><span style={{fontSize:'13px',fontWeight:500,color:'var(--gr)'}}>${getPrice(u).toLocaleString('es-MX')}</span></td>
                           <td style={{padding:'10px',borderBottom:'1px solid var(--bd2)'}}><span style={{display:'inline-block',fontSize:'10px',fontWeight:500,padding:'2px 8px',borderRadius:'var(--rp)',...estColor}}>{u.estado.charAt(0).toUpperCase()+u.estado.slice(1)}</span></td>
                           <td style={{padding:'10px',borderBottom:'1px solid var(--bd2)'}}><button onClick={()=>setExpandedRow(isExpanded2?null:u.id+'_p')} style={{fontFamily:'var(--sans)',fontSize:'11px',background:isExpanded2?'var(--dk)':'transparent',border:'1px solid var(--bd)',borderRadius:'var(--rp)',color:isExpanded2?'#fff':'var(--mid)',padding:'4px 10px',cursor:'pointer'}}>{isExpanded2?'– Info':'+ Info'}</button></td>
                         </tr>
@@ -613,7 +658,7 @@ export default function PreciosView({ projectId }: { projectId: string }) {
                           >
                             <span style={{fontSize:'11px',fontWeight:500,color: u.estado==='reservado' ? '#1a1a1a' : '#fff',lineHeight:1}}>{u.unit_id_display}</span>
                             <span style={{fontSize:'9px',color: u.estado==='reservado' ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.82)',marginTop:'2px'}}>{proto?.nombre||'—'} · {m2tot}m²</span>
-                            <span style={{fontSize:'9px',color: u.estado==='reservado' ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.65)',marginTop:'1px'}}>${(u.precio/1e6).toFixed(1)}M</span>
+                            <span style={{fontSize:'9px',color: u.estado==='reservado' ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.65)',marginTop:'1px'}}>${(getPrice(u)/1e6).toFixed(1)}M</span>
                           </div>
                         )
                       })}
@@ -655,7 +700,7 @@ export default function PreciosView({ projectId }: { projectId: string }) {
                 </div>
                 <div style={{textAlign:'right'}}>
                   <div style={{fontSize:'20px',fontWeight:500,color:'var(--gr)'}}>
-                    ${selectedUnit.precio.toLocaleString('es-MX')}
+                    ${getPrice(selectedUnit).toLocaleString('es-MX')}
                   </div>
                   <div style={{fontSize:'11px',color:'var(--mid)'}}>precio total</div>
                 </div>

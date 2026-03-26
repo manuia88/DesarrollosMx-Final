@@ -56,6 +56,9 @@ export default function DetailView({
   const [engancheVal, setEngancheVal] = useState(20)
   const [openFaq, setOpenFaq] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string | null>(null)
+  const [esquemas, setEsquemas] = useState<{id:string,nombre:string,ajuste_precio_pct:number,es_default:boolean}[]>([])
+  const [selectedEsquema, setSelectedEsquema] = useState('')
+  const [precioAjustado, setPrecioAjustado] = useState(0)
   const sessionId = useRef<string>(Math.random().toString(36).slice(2))
   const pageStart = useRef<number>(Date.now())
   const tabStart = useRef<number>(Date.now())
@@ -120,6 +123,15 @@ export default function DetailView({
         if (data) {
           setProject(data as Project)
           registerView(data as Project)
+          setPrecioAjustado((data as Project).precio_desde)
+          // Cargar esquemas de pago
+          supabase.from('esquemas_pago').select('id, nombre, ajuste_precio_pct, es_default')
+            .eq('project_id', (data as Project).id).order('orden')
+            .then(({ data: esqs }) => {
+              if (esqs && esqs.length > 0) {
+                setEsquemas(esqs as typeof esquemas)
+              }
+            })
         }
       })
 
@@ -146,6 +158,20 @@ export default function DetailView({
     trackEvent('view_tab', projectId, { tab: tabId })
   }
 
+  // Actualizar precio ajustado al cambiar esquema
+  function handleEsquemaChange(esqId: string) {
+    setSelectedEsquema(esqId)
+    if (!project) return
+    if (!esqId) {
+      setPrecioAjustado(project.precio_desde)
+      return
+    }
+    const esq = esquemas.find(e => e.id === esqId)
+    if (esq) {
+      setPrecioAjustado(Math.round(project.precio_desde * (1 + esq.ajuste_precio_pct / 100)))
+    }
+  }
+
   if (!project) return (
     <div style={{padding:'80px 40px',textAlign:'center',fontFamily:'var(--sans)',color:'var(--mid)'}}>
       Cargando proyecto...
@@ -159,10 +185,10 @@ export default function DetailView({
   const planPagos = project.plan_pagos || {enganche_pct:20, mensualidades_num:18}
   const dev = project.desarrolladoras
 
-  const roiValorFuturo = Math.round(project.precio_desde * (1 + roiVal/100 * 1.2))
-  const roiGanancia = roiValorFuturo - project.precio_desde
-  const enganche = Math.round(project.precio_desde * engancheVal / 100)
-  const resto = project.precio_desde - enganche
+  const roiValorFuturo = Math.round(precioAjustado * (1 + roiVal/100 * 1.2))
+  const roiGanancia = roiValorFuturo - precioAjustado
+  const enganche = Math.round(precioAjustado * engancheVal / 100)
+  const resto = precioAjustado - enganche
   const mensualidades = planPagos.mensualidades_num > 0
     ? Math.round(resto * 0.4 / planPagos.mensualidades_num)
     : 0
@@ -234,7 +260,7 @@ export default function DetailView({
         </div>
         <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
           <span style={{fontSize:'19px',fontWeight:500,color:'var(--gr)'}}>
-            ${project.precio_desde.toLocaleString('es-MX')} MXN
+            ${precioAjustado.toLocaleString('es-MX')} MXN
           </span>
           <span style={{fontSize:'10px',color:'var(--mid)',background:'var(--bg2)',padding:'2px 8px',borderRadius:'4px',marginLeft:'7px'}}>
             {project.estado}
@@ -506,8 +532,24 @@ export default function DetailView({
         <div style={{position:'sticky',top:'190px'}}>
           <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'20px',marginBottom:'10px'}}>
             <div style={{fontSize:'10px',textTransform:'uppercase',letterSpacing:'.08em',color:'var(--mid)',marginBottom:'3px'}}>Precio desde</div>
-            <div style={{fontSize:'24px',fontWeight:500,color:'var(--gr)',lineHeight:1,marginBottom:'3px'}}>${project.precio_desde.toLocaleString('es-MX')} MXN</div>
-            <div style={{fontSize:'11px',color:'var(--mid)',marginBottom:'16px'}}>precio base prototipo A</div>
+            <div style={{fontSize:'24px',fontWeight:500,color:'var(--gr)',lineHeight:1,marginBottom:'3px'}}>${precioAjustado.toLocaleString('es-MX')} MXN</div>
+            {selectedEsquema && precioAjustado !== project.precio_desde && (
+              <div style={{fontSize:'10px',color:precioAjustado<project.precio_desde?'var(--gr)':'#DC2626',marginBottom:'3px'}}>
+                {precioAjustado < project.precio_desde ? '↓' : '↑'} {Math.abs(Math.round((precioAjustado/project.precio_desde-1)*100))}% vs lista ${project.precio_desde.toLocaleString('es-MX')}
+              </div>
+            )}
+            <div style={{fontSize:'11px',color:'var(--mid)',marginBottom: esquemas.length > 0 ? '10px' : '16px'}}>precio base prototipo A</div>
+            {esquemas.length > 0 && (
+              <div style={{marginBottom:'14px'}}>
+                <div style={{fontSize:'10px',color:'var(--mid)',marginBottom:'5px'}}>Forma de pago:</div>
+                <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+                  <button onClick={() => handleEsquemaChange('')} style={{fontFamily:'var(--sans)',fontSize:'10px',padding:'4px 10px',borderRadius:'var(--rp)',border:!selectedEsquema?'2px solid var(--dk)':'1px solid var(--bd)',background:!selectedEsquema?'var(--dk)':'var(--wh)',color:!selectedEsquema?'#fff':'var(--mid)',cursor:'pointer'}}>Lista</button>
+                  {esquemas.map(e => (
+                    <button key={e.id} onClick={() => handleEsquemaChange(e.id)} style={{fontFamily:'var(--sans)',fontSize:'10px',padding:'4px 10px',borderRadius:'var(--rp)',border:selectedEsquema===e.id?'2px solid var(--gr)':'1px solid var(--bd)',background:selectedEsquema===e.id?'var(--gr-bg)':'var(--wh)',color:selectedEsquema===e.id?'var(--gr)':'var(--mid)',cursor:'pointer'}}>{e.nombre}</button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div style={{height:'1px',background:'var(--bd2)',margin:'14px 0'}} />
             {[
               {label:'Agendar visita',bg:'transparent',color:'var(--dk)',border:'1px solid rgba(33,45,48,.3)',ev:'visita_agendar'},
@@ -566,7 +608,7 @@ export default function DetailView({
             ))}
             <div style={{display:'flex',justifyContent:'space-between',paddingTop:'8px'}}>
               <span style={{fontSize:'12px',fontWeight:500}}>Total</span>
-              <span style={{fontSize:'15px',fontWeight:500,color:'var(--gr)'}}>${project.precio_desde.toLocaleString('es-MX')}</span>
+              <span style={{fontSize:'15px',fontWeight:500,color:'var(--gr)'}}>${precioAjustado.toLocaleString('es-MX')}</span>
             </div>
           </div>
         </div>

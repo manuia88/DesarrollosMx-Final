@@ -44,11 +44,11 @@ export default function NuevoProyectoPage() {
 
   // Esquemas de pago dinámicos
   const [esquemas, setEsquemas] = useState([
-    { nombre: 'Plan estándar', enganche_pct: 20, mensualidades_num: 18, pct_mensualidades: 40, pct_pago_final: 40, acepta_credito: true, descuento_contado_pct: 0, notas: '', es_default: true }
+    { nombre: 'Plan estándar', enganche_pct: 20, mensualidades_num: 18, pct_mensualidades: 40, pct_pago_final: 40, acepta_credito: true, descuento_contado_pct: 0, ajuste_precio_pct: 0, notas: '', es_default: true }
   ])
 
   function addEsquema() {
-    setEsquemas(prev => [...prev, { nombre: '', enganche_pct: 20, mensualidades_num: 18, pct_mensualidades: 40, pct_pago_final: 40, acepta_credito: true, descuento_contado_pct: 0, notas: '', es_default: false }])
+    setEsquemas(prev => [...prev, { nombre: '', enganche_pct: 20, mensualidades_num: 18, pct_mensualidades: 40, pct_pago_final: 40, acepta_credito: true, descuento_contado_pct: 0, ajuste_precio_pct: 0, notas: '', es_default: false }])
   }
 
   function removeEsquema(idx: number) {
@@ -153,6 +153,7 @@ export default function NuevoProyectoPage() {
             pct_pago_final: e.pct_pago_final,
             acepta_credito: e.acepta_credito,
             descuento_contado_pct: e.descuento_contado_pct,
+            ajuste_precio_pct: e.ajuste_precio_pct,
             es_default: e.es_default,
             notas: e.notas || null,
             orden: i,
@@ -349,7 +350,8 @@ export default function NuevoProyectoPage() {
             </div>
 
             {esquemas.map((esq, idx) => {
-              const precio = parseFloat(form.precio_desde) || 0
+              const precioBase = parseFloat(form.precio_desde) || 0
+              const precio = Math.round(precioBase * (1 + esq.ajuste_precio_pct / 100))
               const engMonto = Math.round(precio * esq.enganche_pct / 100)
               const resto = precio - engMonto
               const mensMonto = esq.mensualidades_num > 0 ? Math.round(resto * esq.pct_mensualidades / 100 / esq.mensualidades_num) : 0
@@ -410,6 +412,8 @@ export default function NuevoProyectoPage() {
 
                   {/* Preview */}
                   {precio > 0 && (
+                    <div>
+                    {esq.ajuste_precio_pct !== 0 && <div style={{fontSize:'11px',marginBottom:'8px',padding:'5px 10px',borderRadius:'var(--rs)',background:esq.ajuste_precio_pct<0?'var(--gr-bg)':'#FEE2E2',color:esq.ajuste_precio_pct<0?'var(--gr)':'#DC2626'}}>Precio ajustado: ${precio.toLocaleString('es-MX')} ({esq.ajuste_precio_pct>0?'+':''}{esq.ajuste_precio_pct}% vs lista ${precioBase.toLocaleString('es-MX')})</div>}
                     <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}}>
                       {[
                         {l:'Enganche',v:`$${engMonto.toLocaleString('es-MX')}`,s:`${esq.enganche_pct}%`},
@@ -422,6 +426,7 @@ export default function NuevoProyectoPage() {
                           <div style={{fontSize:'9px',color:'var(--dim)'}}>{item.s}</div>
                         </div>
                       ))}
+                    </div>
                     </div>
                   )}
                 </div>
