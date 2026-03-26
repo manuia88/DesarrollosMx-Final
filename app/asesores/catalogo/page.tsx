@@ -35,6 +35,8 @@ interface ProjectWithScore extends Project {
   absorcion_pct: number
   meses_sold_out: number
   precio_m2: number
+  precio_m2_zona: number
+  delta_zona_pct: number
   inWishlist: boolean
 }
 
@@ -109,11 +111,34 @@ export default function CatalogoPage() {
           absorcion_pct: Math.round(absorcion),
           meses_sold_out: Math.min(meses_sold_out, 99),
           precio_m2,
+          precio_m2_zona: 0, // se calcula después
+          delta_zona_pct: 0, // se calcula después
           inWishlist: wishlistIds.has(p.id),
         }
       })
 
-      setProjects(withScore)
+      // Calcular precio/m² promedio por alcaldía
+      const zonaPrecios: Record<string, number[]> = {}
+      withScore.forEach(p => {
+        if (p.precio_m2 > 0) {
+          if (!zonaPrecios[p.alcaldia]) zonaPrecios[p.alcaldia] = []
+          zonaPrecios[p.alcaldia].push(p.precio_m2)
+        }
+      })
+      const zonaPromedios: Record<string, number> = {}
+      Object.entries(zonaPrecios).forEach(([alcaldia, precios]) => {
+        zonaPromedios[alcaldia] = Math.round(precios.reduce((a, b) => a + b, 0) / precios.length)
+      })
+
+      const withZona = withScore.map(p => {
+        const zona_avg = zonaPromedios[p.alcaldia] || 0
+        const delta = zona_avg > 0 && p.precio_m2 > 0
+          ? Math.round((p.precio_m2 - zona_avg) / zona_avg * 100)
+          : 0
+        return { ...p, precio_m2_zona: zona_avg, delta_zona_pct: delta }
+      })
+
+      setProjects(withZona)
       setLoading(false)
     }
     load()
@@ -321,6 +346,19 @@ export default function CatalogoPage() {
                     <div style={{display:'flex',alignItems:'center',gap:'5px',background: p.meses_sold_out <= 3 ? '#FEE2E2' : '#FEF9C3',borderRadius:'var(--rs)',padding:'4px 10px'}}>
                       <span style={{fontSize:'10px',color: p.meses_sold_out <= 3 ? '#DC2626' : '#A16207'}}>Sold out est.:</span>
                       <span style={{fontSize:'11px',fontWeight:700,color: p.meses_sold_out <= 3 ? '#DC2626' : '#A16207'}}>{p.meses_sold_out} meses</span>
+                    </div>
+                  )}
+
+                  {/* Precio/m² vs zona */}
+                  {p.precio_m2 > 0 && p.precio_m2_zona > 0 && (
+                    <div style={{display:'flex',alignItems:'center',gap:'5px',background: p.delta_zona_pct <= -5 ? '#DCFCE7' : p.delta_zona_pct >= 5 ? '#FEE2E2' : 'var(--bg2)',borderRadius:'var(--rs)',padding:'4px 10px'}}>
+                      <span style={{fontSize:'10px',color: p.delta_zona_pct <= -5 ? '#15803D' : p.delta_zona_pct >= 5 ? '#DC2626' : 'var(--mid)'}}>
+                        {p.delta_zona_pct <= -5 ? '📉 Bajo zona' : p.delta_zona_pct >= 5 ? '📈 Sobre zona' : '➡️ En zona'}:
+                      </span>
+                      <span style={{fontSize:'11px',fontWeight:700,color: p.delta_zona_pct <= -5 ? '#15803D' : p.delta_zona_pct >= 5 ? '#DC2626' : 'var(--dk)'}}>
+                        {p.delta_zona_pct > 0 ? '+' : ''}{p.delta_zona_pct}%
+                      </span>
+                      <span style={{fontSize:'9px',color:'var(--dim)'}}>vs ${p.precio_m2_zona.toLocaleString('es-MX')}/m² zona</span>
                     </div>
                   )}
                 </div>
