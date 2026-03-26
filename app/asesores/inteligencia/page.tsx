@@ -25,18 +25,47 @@ interface SearchTrend {
   count: number
 }
 
+interface ZonaSnapshot {
+  alcaldia: string
+  semana: string
+  proyectos_activos: number
+  unidades_totales: number
+  unidades_disponibles: number
+  unidades_vendidas: number
+  precio_m2_promedio: number
+  precio_promedio: number
+  absorcion_promedio: number
+  proyectos_nuevos: number
+}
+
+interface ProjectVelocity {
+  id: string
+  nombre: string
+  alcaldia: string
+  colonia: string
+  ventas_por_mes: number
+  meses_para_sold_out: number
+  tendencia: string
+  fecha_estimada_sold_out: string | null
+  disponibles: number
+  vendidas: number
+  total: number
+}
+
 export default function InteligenciaPage() {
   const [zonaStats, setZonaStats] = useState<ZonaStat[]>([])
   const [unmetDemand, setUnmetDemand] = useState<UnmetDemand[]>([])
   const [searchTrends, setSearchTrends] = useState<SearchTrend[]>([])
   const [loading, setLoading] = useState(true)
+  const [snapshots, setSnapshots] = useState<ZonaSnapshot[]>([])
+  const [velocities, setVelocities] = useState<ProjectVelocity[]>([])
   const [activeTab, setActiveTab] = useState('mercado')
   const supabase = createClient()
 
   useEffect(() => {
     async function load() {
       const [{ data: projects }, { data: unidades }, { data: searches }, { data: unmet }] = await Promise.all([
-        supabase.from('projects').select('id, alcaldia, colonia, precio_desde, m2_min, total_unidades').eq('publicado', true),
+        supabase.from('projects').select('id, nombre, alcaldia, colonia, precio_desde, m2_min, total_unidades').eq('publicado', true),
         supabase.from('unidades').select('project_id, estado, precio, m2_privados'),
         supabase.from('search_logs').select('alcaldia').not('alcaldia', 'is', null),
         supabase.from('unmet_demand').select('*').order('busquedas_count', { ascending: false }).limit(10),
@@ -78,6 +107,33 @@ export default function InteligenciaPage() {
       setSearchTrends(Object.entries(trendMap).map(([alcaldia, count]) => ({ alcaldia, count })).sort((a, b) => b.count - a.count).slice(0, 8))
 
       setUnmetDemand((unmet as UnmetDemand[]) || [])
+
+      // Cargar zona snapshots (últimas 4 semanas)
+      const { data: snaps } = await supabase
+        .from('zona_snapshots').select('*')
+        .gte('semana', new Date(Date.now() - 28*24*60*60*1000).toISOString().slice(0,10))
+        .order('semana', { ascending: false })
+      setSnapshots((snaps as ZonaSnapshot[]) || [])
+
+      // Cargar velocity por proyecto
+      const vels: ProjectVelocity[] = []
+      for (const p of (projects || []).slice(0, 20)) {
+        try {
+          const { data: vel } = await supabase.rpc('get_project_velocity', { p_project_id: p.id })
+          if (vel && vel[0]) {
+            vels.push({
+              id: p.id, nombre: (p as {nombre?:string}).nombre || '', alcaldia: p.alcaldia, colonia: p.colonia || '',
+              ventas_por_mes: vel[0].ventas_por_mes || 0,
+              meses_para_sold_out: vel[0].meses_para_sold_out || 99,
+              tendencia: vel[0].tendencia || 'estable',
+              fecha_estimada_sold_out: vel[0].fecha_estimada_sold_out || null,
+              disponibles: vel[0].disponibles || 0, vendidas: vel[0].vendidas || 0, total: vel[0].total_unidades || 0,
+            })
+          }
+        } catch { /* silencioso */ }
+      }
+      setVelocities(vels.sort((a, b) => b.ventas_por_mes - a.ventas_por_mes))
+
       setLoading(false)
     }
     load()
@@ -118,7 +174,7 @@ export default function InteligenciaPage() {
 
       {/* TABS */}
       <div style={{borderBottom:'1px solid var(--bd)',marginBottom:'24px',display:'flex',overflowX:'auto',scrollbarWidth:'none'}}>
-        {[{id:'mercado',l:'Mercado por zona'},{id:'demanda',l:'Demanda no atendida'},{id:'tendencias',l:'Tendencias de búsqueda'}].map(t => (
+        {[{id:'mercado',l:'Mercado por zona'},{id:'snapshots',l:'Snapshots semanales'},{id:'velocity',l:'Velocity de proyectos'},{id:'demanda',l:'Demanda no atendida'},{id:'tendencias',l:'Tendencias de búsqueda'}].map(t => (
           <button key={t.id} onClick={() => setActiveTab(t.id)} style={tabStyle(t.id)}>{t.l}</button>
         ))}
       </div>
@@ -165,6 +221,95 @@ export default function InteligenciaPage() {
                   </div>
                 )
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB: SNAPSHOTS SEMANALES */}
+      {activeTab === 'snapshots' && (
+        <div>
+          <div style={{fontSize:'13px',color:'var(--mid)',marginBottom:'16px'}}>
+            Resumen semanal por alcaldía. Se genera automáticamente cada semana.
+          </div>
+          {snapshots.length === 0 ? (
+            <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'40px',textAlign:'center',color:'var(--mid)'}}>
+              Los snapshots se generan semanalmente. El primero se creará esta semana.
+            </div>
+          ) : (
+            <div style={{display:'grid',gap:'10px'}}>
+              {[...new Set(snapshots.map(s => s.alcaldia))].map(alc => {
+                const latest = snapshots.find(s => s.alcaldia === alc)
+                if (!latest) return null
+                return (
+                  <div key={alc} style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'16px 20px'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+                      <div style={{fontSize:'15px',fontWeight:500,color:'var(--dk)'}}>{alc}</div>
+                      <div style={{fontSize:'10px',color:'var(--dim)'}}>Semana del {new Date(latest.semana).toLocaleDateString('es-MX',{day:'numeric',month:'short'})}</div>
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'8px'}}>
+                      {[
+                        {l:'Proyectos',v:latest.proyectos_activos,c:'var(--dk)'},
+                        {l:'Disponibles',v:latest.unidades_disponibles,c:'#15803D'},
+                        {l:'Vendidas',v:latest.unidades_vendidas,c:'var(--am)'},
+                        {l:'Absorción',v:`${latest.absorcion_promedio}%`,c:latest.absorcion_promedio>=15?'#15803D':latest.absorcion_promedio>=8?'#A16207':'#DC2626'},
+                      ].map((s,i) => (
+                        <div key={i} style={{background:'var(--bg2)',borderRadius:'var(--rs)',padding:'8px',textAlign:'center'}}>
+                          <div style={{fontSize:'16px',fontWeight:600,color:s.c}}>{s.v}</div>
+                          <div style={{fontSize:'9px',color:'var(--mid)'}}>{s.l}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {latest.precio_m2_promedio > 0 && (
+                      <div style={{fontSize:'11px',color:'var(--mid)',marginTop:'8px'}}>
+                        Precio promedio: ${Math.round(latest.precio_promedio/1e6*10)/10}M · Precio/m²: ${latest.precio_m2_promedio.toLocaleString('es-MX')}/m²
+                        {latest.proyectos_nuevos > 0 && <span style={{color:'var(--gr)',fontWeight:500}}> · {latest.proyectos_nuevos} nuevo{latest.proyectos_nuevos>1?'s':''} esta semana</span>}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB: VELOCITY DE PROYECTOS */}
+      {activeTab === 'velocity' && (
+        <div>
+          <div style={{fontSize:'13px',color:'var(--mid)',marginBottom:'16px'}}>
+            Velocidad de venta real por proyecto. Basado en historial de cambios de estado.
+          </div>
+          {velocities.length === 0 ? (
+            <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'40px',textAlign:'center',color:'var(--mid)'}}>
+              Los datos de velocity se calculan cuando hay movimiento de unidades
+            </div>
+          ) : (
+            <div style={{display:'grid',gap:'10px'}}>
+              {velocities.map((v, i) => (
+                <div key={v.id} style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'16px 20px',display:'flex',gap:'16px',alignItems:'center'}}>
+                  <div style={{width:'28px',height:'28px',borderRadius:'50%',background:v.tendencia==='acelerando'?'#DCFCE7':v.tendencia==='desacelerando'?'#FEE2E2':'var(--bg2)',color:v.tendencia==='acelerando'?'#15803D':v.tendencia==='desacelerando'?'#DC2626':'var(--dk)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'12px',fontWeight:700,flexShrink:0}}>
+                    {i+1}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:'14px',fontWeight:500,color:'var(--dk)',marginBottom:'3px'}}>{v.nombre}</div>
+                    <div style={{fontSize:'11px',color:'var(--mid)'}}>{v.colonia}, {v.alcaldia} · {v.disponibles} disp. de {v.total}</div>
+                  </div>
+                  <div style={{display:'flex',gap:'12px',alignItems:'center',flexShrink:0}}>
+                    <div style={{textAlign:'center'}}>
+                      <div style={{fontSize:'18px',fontWeight:700,color:'var(--dk)'}}>{v.ventas_por_mes}</div>
+                      <div style={{fontSize:'9px',color:'var(--mid)'}}>ventas/mes</div>
+                    </div>
+                    <div style={{textAlign:'center'}}>
+                      <div style={{fontSize:'14px',fontWeight:600,color:v.meses_para_sold_out<=3?'#DC2626':v.meses_para_sold_out<=6?'#A16207':'var(--dk)'}}>{v.meses_para_sold_out < 99 ? `${v.meses_para_sold_out}m` : '—'}</div>
+                      <div style={{fontSize:'9px',color:'var(--mid)'}}>sold out</div>
+                    </div>
+                    <div style={{fontSize:'11px',fontWeight:500,padding:'4px 10px',borderRadius:'var(--rp)',background:v.tendencia==='acelerando'?'#DCFCE7':v.tendencia==='desacelerando'?'#FEE2E2':'var(--bg2)',color:v.tendencia==='acelerando'?'#15803D':v.tendencia==='desacelerando'?'#DC2626':'var(--mid)'}}>
+                      {v.tendencia === 'acelerando' ? '🔥 Acelerando' : v.tendencia === 'desacelerando' ? '⚠️ Desacelerando' : '→ Estable'}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
