@@ -35,6 +35,15 @@ export default function EditarProyectoPage({ params }: { params: Promise<{ id: s
     { name:'Entrega', date:'' },
   ])
 
+  const [esquemas, setEsquemas] = useState<{nombre:string,enganche_pct:number,mensualidades_num:number,pct_mensualidades:number,pct_pago_final:number,acepta_credito:boolean,descuento_contado_pct:number,notas:string,es_default:boolean,id?:string}[]>([])
+
+  function addEsquema() {
+    setEsquemas(prev => [...prev, { nombre:'',enganche_pct:20,mensualidades_num:18,pct_mensualidades:40,pct_pago_final:40,acepta_credito:true,descuento_contado_pct:0,notas:'',es_default:prev.length===0 }])
+  }
+  function removeEsquema(idx:number) { setEsquemas(prev => prev.filter((_,i)=>i!==idx)) }
+  function updEsquema(idx:number,key:string,val:unknown) { setEsquemas(prev => prev.map((e,i)=>i===idx?{...e,[key]:val}:e)) }
+  function setDefaultEsquema(idx:number) { setEsquemas(prev => prev.map((e,i)=>({...e,es_default:i===idx}))) }
+
   useEffect(() => {
     if (!id) return
     async function load() {
@@ -65,6 +74,23 @@ export default function EditarProyectoPage({ params }: { params: Promise<{ id: s
         estado_publicacion: data.estado_publicacion || 'borrador',
       })
       if (data.etapas?.length) setEtapas(data.etapas)
+      // Cargar esquemas de pago
+      const { data: esqs } = await supabase
+        .from('esquemas_pago').select('*').eq('project_id', id).order('orden')
+      if (esqs && esqs.length > 0) {
+        setEsquemas(esqs.map((e: Record<string,unknown>) => ({
+          id: e.id as string,
+          nombre: (e.nombre as string) || '',
+          enganche_pct: (e.enganche_pct as number) || 20,
+          mensualidades_num: (e.mensualidades_num as number) || 18,
+          pct_mensualidades: (e.pct_mensualidades as number) || 40,
+          pct_pago_final: (e.pct_pago_final as number) || 40,
+          acepta_credito: (e.acepta_credito as boolean) ?? true,
+          descuento_contado_pct: (e.descuento_contado_pct as number) || 0,
+          notas: (e.notas as string) || '',
+          es_default: (e.es_default as boolean) || false,
+        })))
+      }
       setLoading(false)
     }
     load()
@@ -112,7 +138,27 @@ export default function EditarProyectoPage({ params }: { params: Promise<{ id: s
       amenidades: form.amenidades,
       updated_at: new Date().toISOString(),
     }).eq('id', id)
-    if (err) { setError(err.message) }
+    if (err) { setError(err.message); setSaving(false); return }
+
+    // Guardar esquemas — borrar existentes y reinsertar
+    await supabase.from('esquemas_pago').delete().eq('project_id', id)
+    if (esquemas.length > 0) {
+      await supabase.from('esquemas_pago').insert(
+        esquemas.map((e, i) => ({
+          project_id: id,
+          nombre: e.nombre || 'Plan ' + (i + 1),
+          enganche_pct: e.enganche_pct,
+          mensualidades_num: e.mensualidades_num,
+          pct_mensualidades: e.pct_mensualidades,
+          pct_pago_final: e.pct_pago_final,
+          acepta_credito: e.acepta_credito,
+          descuento_contado_pct: e.descuento_contado_pct,
+          es_default: e.es_default,
+          notas: e.notas || null,
+          orden: i,
+        }))
+      )
+    }
     else { setSuccess('Proyecto guardado correctamente') }
     setSaving(false)
   }
@@ -309,15 +355,60 @@ export default function EditarProyectoPage({ params }: { params: Promise<{ id: s
                 <input style={inputStyle} type="number" value={form.plusvalia_pct} onChange={e=>upd('plusvalia_pct',e.target.value)} />
               </div>
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px'}}>
-              <div>
-                <label style={labelStyle}>Enganche (%)</label>
-                <input style={inputStyle} type="number" value={form.enganche_pct} onChange={e=>upd('enganche_pct',e.target.value)} />
+            {/* ESQUEMAS DE PAGO */}
+            <div style={{borderTop:'1px solid var(--bd)',paddingTop:'14px',marginTop:'6px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+                <div>
+                  <div style={{fontSize:'14px',fontWeight:500,color:'var(--dk)'}}>Esquemas de pago</div>
+                  <div style={{fontSize:'11px',color:'var(--mid)'}}>Hasta 4 formas de pago diferentes</div>
+                </div>
+                {esquemas.length < 4 && <button onClick={addEsquema} style={{fontFamily:'var(--sans)',fontSize:'11px',padding:'6px 14px',borderRadius:'var(--rp)',background:'var(--dk)',color:'#fff',border:'none',cursor:'pointer'}}>+ Agregar</button>}
               </div>
-              <div>
-                <label style={labelStyle}>Número de mensualidades</label>
-                <input style={inputStyle} type="number" value={form.mensualidades_num} onChange={e=>upd('mensualidades_num',e.target.value)} />
-              </div>
+              {esquemas.map((esq,idx) => {
+                const precio = parseFloat(form.precio_desde) || 0
+                const engMonto = Math.round(precio*esq.enganche_pct/100)
+                const resto = precio - engMonto
+                const mensMonto = esq.mensualidades_num>0 ? Math.round(resto*esq.pct_mensualidades/100/esq.mensualidades_num) : 0
+                const finalMonto = Math.round(resto*esq.pct_pago_final/100)
+                return (
+                  <div key={idx} style={{background:'var(--wh)',border:esq.es_default?'2px solid var(--gr)':'1px solid var(--bd)',borderRadius:'var(--r)',padding:'14px',marginBottom:'10px',position:'relative'}}>
+                    {esq.es_default && <div style={{position:'absolute',top:'-8px',left:'12px',fontSize:'9px',fontWeight:600,background:'var(--gr)',color:'#fff',padding:'1px 8px',borderRadius:'var(--rp)'}}>DEFAULT</div>}
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+                      <input style={{...inputStyle,width:'200px',fontWeight:500}} value={esq.nombre} onChange={e=>updEsquema(idx,'nombre',e.target.value)} placeholder="Nombre del esquema" />
+                      <div style={{display:'flex',gap:'6px'}}>
+                        {!esq.es_default && <button onClick={()=>setDefaultEsquema(idx)} style={{fontFamily:'var(--sans)',fontSize:'10px',padding:'4px 10px',borderRadius:'var(--rp)',background:'var(--bg2)',color:'var(--dk)',border:'1px solid var(--bd)',cursor:'pointer'}}>Default</button>}
+                        {esquemas.length>1 && <button onClick={()=>removeEsquema(idx)} style={{fontFamily:'var(--sans)',fontSize:'10px',padding:'4px 10px',borderRadius:'var(--rp)',background:'#FEE2E2',color:'#DC2626',border:'none',cursor:'pointer'}}>Eliminar</button>}
+                      </div>
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'10px',marginBottom:'10px'}}>
+                      <div><label style={labelStyle}>Enganche (%)</label><input style={inputStyle} type="number" value={esq.enganche_pct} onChange={e=>updEsquema(idx,'enganche_pct',+e.target.value)} min="5" max="100" /></div>
+                      <div><label style={labelStyle}>% mensualidades</label><input style={inputStyle} type="number" value={esq.pct_mensualidades} onChange={e=>updEsquema(idx,'pct_mensualidades',+e.target.value)} min="0" max="100" /></div>
+                      <div><label style={labelStyle}>% pago final</label><input style={inputStyle} type="number" value={esq.pct_pago_final} onChange={e=>updEsquema(idx,'pct_pago_final',+e.target.value)} min="0" max="100" /></div>
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'10px'}}>
+                      <div><label style={labelStyle}>Mensualidades (#)</label><input style={inputStyle} type="number" value={esq.mensualidades_num} onChange={e=>updEsquema(idx,'mensualidades_num',+e.target.value)} min="0" max="60" /></div>
+                      <div><label style={labelStyle}>Descuento contado (%)</label><input style={inputStyle} type="number" value={esq.descuento_contado_pct} onChange={e=>updEsquema(idx,'descuento_contado_pct',+e.target.value)} min="0" max="30" /></div>
+                    </div>
+                    <div style={{display:'flex',gap:'14px',alignItems:'center',marginBottom:'10px'}}>
+                      <label style={{display:'flex',alignItems:'center',gap:'6px',fontSize:'12px',color:'var(--dk)',cursor:'pointer'}}><input type="checkbox" checked={esq.acepta_credito} onChange={e=>updEsquema(idx,'acepta_credito',e.target.checked)} /> Acepta crédito</label>
+                      <input style={{...inputStyle,flex:1}} value={esq.notas} onChange={e=>updEsquema(idx,'notas',e.target.value)} placeholder="Notas (opcional)" />
+                    </div>
+                    {esq.enganche_pct+esq.pct_mensualidades+esq.pct_pago_final!==100 && <div style={{fontSize:'11px',color:'#DC2626',background:'#FEE2E2',padding:'6px 10px',borderRadius:'var(--rs)',marginBottom:'8px'}}>⚠️ Debe sumar 100% — actual: {esq.enganche_pct+esq.pct_mensualidades+esq.pct_pago_final}%</div>}
+                    {precio>0 && (
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}}>
+                        {[{l:'Enganche',v:`$${engMonto.toLocaleString('es-MX')}`,s:`${esq.enganche_pct}%`},{l:'Mensualidades',v:esq.mensualidades_num>0?`$${mensMonto.toLocaleString('es-MX')}/mes`:'—',s:esq.mensualidades_num>0?`${esq.mensualidades_num} pagos`:'Sin mensualidades'},{l:'Pago final',v:`$${finalMonto.toLocaleString('es-MX')}`,s:'Al escriturar'}].map((item,i) => (
+                          <div key={i} style={{background:'var(--bg2)',borderRadius:'var(--rs)',padding:'8px',textAlign:'center'}}>
+                            <div style={{fontSize:'13px',fontWeight:500,color:'var(--gr)'}}>{item.v}</div>
+                            <div style={{fontSize:'10px',color:'var(--mid)',marginTop:'2px'}}>{item.l}</div>
+                            <div style={{fontSize:'9px',color:'var(--dim)'}}>{item.s}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {esquemas.length===0 && <div style={{fontSize:'12px',color:'var(--mid)',padding:'12px',background:'var(--bg2)',borderRadius:'var(--rs)',textAlign:'center'}}>Sin esquemas de pago. Click &quot;+ Agregar&quot; para crear uno.</div>}
             </div>
           </div>
         )}
