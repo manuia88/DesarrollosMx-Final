@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, use } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 interface LogEntry {
@@ -8,7 +8,8 @@ interface LogEntry {
   descripcion: string
 }
 
-export default function AvancePage({ params }: { params: { id: string } }) {
+export default function AvancePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
   const [projectName, setProjectName] = useState('')
   const [avancePct, setAvancePct] = useState(0)
   const [etapaActual, setEtapaActual] = useState('Construcción')
@@ -20,7 +21,7 @@ export default function AvancePage({ params }: { params: { id: string } }) {
   const supabase = createClient()
 
   useEffect(() => {
-    supabase.from('projects').select('nombre,etapa_actual,etapas,descripcion').eq('id', params.id).single()
+    supabase.from('projects').select('nombre,etapa_actual,etapas,descripcion').eq('id', id).single()
       .then(({ data }) => {
         if (!data) return
         setProjectName(data.nombre)
@@ -29,7 +30,7 @@ export default function AvancePage({ params }: { params: { id: string } }) {
         const etapaIdx = ['Diseño','Permisos','Construcción','Acabados','Entrega'].indexOf(data.etapa_actual || 'Construcción')
         setAvancePct(Math.round((etapaIdx + 1) / 5 * 100))
       })
-  }, [params.id])
+  }, [id])
 
   function addLog() {
     if (!newEntry.titulo) return
@@ -43,7 +44,7 @@ export default function AvancePage({ params }: { params: { id: string } }) {
     const { error } = await supabase.from('projects').update({
       etapa_actual: etapaActual as 'Diseño'|'Permisos'|'Construcción'|'Acabados'|'Entrega',
       updated_at: new Date().toISOString(),
-    }).eq('id', params.id)
+    }).eq('id', id)
     if (!error) setSuccess('Avance guardado correctamente')
     setSaving(false)
   }
@@ -68,7 +69,7 @@ export default function AvancePage({ params }: { params: { id: string } }) {
     <div style={{maxWidth:'700px'}}>
       {/* HEADER */}
       <div style={{marginBottom:'24px'}}>
-        <a href={`/desarrolladores/proyectos/${params.id}`} style={{fontSize:'13px',color:'var(--mid)',textDecoration:'none'}}>← {projectName}</a>
+        <a href={`/desarrolladores/proyectos/${id}`} style={{fontSize:'13px',color:'var(--mid)',textDecoration:'none'}}>← {projectName}</a>
         <div style={{fontSize:'22px',fontWeight:600,color:'var(--dk)',marginTop:'4px'}}>Avance de obra</div>
         <div style={{fontSize:'13px',color:'var(--mid)'}}>Actualiza la etapa y registra entradas del avance</div>
       </div>
@@ -195,7 +196,7 @@ export default function AvancePage({ params }: { params: { id: string } }) {
 
       {/* GUARDAR */}
       <div style={{display:'flex',gap:'10px',justifyContent:'flex-end'}}>
-        <a href={`/desarrolladores/proyectos/${params.id}`} style={{fontFamily:'var(--sans)',fontSize:'13px',background:'transparent',color:'var(--mid)',border:'1px solid var(--bd)',borderRadius:'var(--rp)',padding:'10px 20px',textDecoration:'none'}}>← Volver</a>
+        <a href={`/desarrolladores/proyectos/${id}`} style={{fontFamily:'var(--sans)',fontSize:'13px',background:'transparent',color:'var(--mid)',border:'1px solid var(--bd)',borderRadius:'var(--rp)',padding:'10px 20px',textDecoration:'none'}}>← Volver</a>
         <button onClick={handleSave} disabled={saving} style={{fontFamily:'var(--sans)',fontSize:'13px',background:'var(--dk)',color:'#fff',border:'none',borderRadius:'var(--rp)',padding:'10px 24px',cursor:'pointer',opacity:saving?0.7:1}}>
           {saving ? 'Guardando...' : '✓ Guardar avance'}
         </button>

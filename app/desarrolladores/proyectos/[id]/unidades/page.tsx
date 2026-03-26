@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, use, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 interface Unidad {
@@ -53,7 +53,8 @@ const EMPTY_UNIT = (projectId: string): Unidad => ({
   isDirty: true,
 })
 
-export default function UnidadesPage({ params }: { params: { id: string } }) {
+export default function UnidadesPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
   const [unidades, setUnidades] = useState<Unidad[]>([])
   const [prototipos, setPrototipos] = useState<Prototipo[]>([])
   const [projectName, setProjectName] = useState('')
@@ -69,11 +70,11 @@ export default function UnidadesPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     async function load() {
-      const { data: proj } = await supabase.from('projects').select('nombre').eq('id', params.id).single()
+      const { data: proj } = await supabase.from('projects').select('nombre').eq('id', id).single()
       if (proj) setProjectName(proj.nombre)
       const [{ data: u }, { data: p }] = await Promise.all([
-        supabase.from('unidades').select('*').eq('project_id', params.id).order('nivel').order('unit_id_display'),
-        supabase.from('prototipos').select('*').eq('project_id', params.id).order('nombre'),
+        supabase.from('unidades').select('*').eq('project_id', id).order('nivel').order('unit_id_display'),
+        supabase.from('prototipos').select('*').eq('project_id', id).order('nombre'),
       ])
       setUnidades((u as Unidad[]) || [])
       setPrototipos((p as Prototipo[]) || [])
@@ -81,7 +82,7 @@ export default function UnidadesPage({ params }: { params: { id: string } }) {
       setLoading(false)
     }
     load()
-  }, [params.id])
+  }, [id])
 
   function calcStats(list: Unidad[]) {
     setStats({
@@ -103,14 +104,14 @@ export default function UnidadesPage({ params }: { params: { id: string } }) {
 
   function addRow() {
     setUnidades(prev => {
-      const next = [...prev, EMPTY_UNIT(params.id)]
+      const next = [...prev, EMPTY_UNIT(id)]
       calcStats(next)
       return next
     })
   }
 
   function addMultipleRows(n: number) {
-    const newRows = Array.from({ length: n }, () => EMPTY_UNIT(params.id))
+    const newRows = Array.from({ length: n }, () => EMPTY_UNIT(id))
     setUnidades(prev => {
       const next = [...prev, ...newRows]
       calcStats(next)
@@ -201,7 +202,7 @@ export default function UnidadesPage({ params }: { params: { id: string } }) {
       }
     }
     // Reload
-    const { data } = await supabase.from('unidades').select('*').eq('project_id', params.id).order('nivel').order('unit_id_display')
+    const { data } = await supabase.from('unidades').select('*').eq('project_id', id).order('nivel').order('unit_id_display')
     setUnidades((data as Unidad[]) || [])
     calcStats((data as Unidad[]) || [])
     setSaving(false)
@@ -235,7 +236,7 @@ export default function UnidadesPage({ params }: { params: { id: string } }) {
       const obj: Record<string,string> = {}
       headers.forEach((h,i) => { obj[h] = vals[i] || '' })
       return {
-        project_id: params.id,
+        project_id: id,
         unit_id_display: obj['id'] || obj['depto'] || obj['unidad'] || obj['unit_id_display'] || '',
         nivel: parseInt(obj['nivel'] || obj['piso'] || '1') || 1,
         m2_privados: parseFloat(obj['m2_privados'] || obj['m2'] || obj['metros'] || '0') || 0,
@@ -294,7 +295,7 @@ export default function UnidadesPage({ params }: { params: { id: string } }) {
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'20px',flexWrap:'wrap',gap:'12px'}}>
         <div>
           <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px'}}>
-            <a href={`/desarrolladores/proyectos/${params.id}`} style={{fontSize:'13px',color:'var(--mid)',textDecoration:'none'}}>← {projectName}</a>
+            <a href={`/desarrolladores/proyectos/${id}`} style={{fontSize:'13px',color:'var(--mid)',textDecoration:'none'}}>← {projectName}</a>
           </div>
           <div style={{fontSize:'22px',fontWeight:600,color:'var(--dk)'}}>Gestión de unidades</div>
           <div style={{fontSize:'13px',color:'var(--mid)',marginTop:'4px'}}>

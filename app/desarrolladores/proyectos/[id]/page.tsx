@@ -1,12 +1,13 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, use } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 
 const ALCALDIAS = ['Álvaro Obregón','Azcapotzalco','Benito Juárez','Coyoacán','Cuajimalpa','Cuauhtémoc','GAM','Iztacalco','Iztapalapa','Magdalena Contreras','Miguel Hidalgo','Milpa Alta','Tláhuac','Tlalpan','Venustiano Carranza','Xochimilco']
 const AMENIDADES_OPTS = ['Roof garden','Gimnasio','Lobby doble altura','Estacionamiento','Bici estacionamiento','Seguridad 24/7','CCTV','Elevadores','Pet friendly','Áreas verdes','Alberca','Salón de eventos','Coworking','Cuarto de servicio','Bodega','Accesibilidad']
 
-export default function EditarProyectoPage({ params }: { params: { id: string } }) {
+export default function EditarProyectoPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -35,9 +36,10 @@ export default function EditarProyectoPage({ params }: { params: { id: string } 
   ])
 
   useEffect(() => {
+    if (!id) return
     async function load() {
       const { data } = await supabase
-        .from('projects').select('*').eq('id', params.id).single()
+        .from('projects').select('*').eq('id', id).single()
       if (!data) return
       const pp = data.plan_pagos || {}
       setForm({
@@ -66,7 +68,7 @@ export default function EditarProyectoPage({ params }: { params: { id: string } 
       setLoading(false)
     }
     load()
-  }, [params.id])
+  }, [id])
 
   function upd(key: string, val: string) {
     setForm(prev => ({ ...prev, [key]: val }))
@@ -109,7 +111,7 @@ export default function EditarProyectoPage({ params }: { params: { id: string } 
       },
       amenidades: form.amenidades,
       updated_at: new Date().toISOString(),
-    }).eq('id', params.id)
+    }).eq('id', id)
     if (err) { setError(err.message) }
     else { setSuccess('Proyecto guardado correctamente') }
     setSaving(false)
@@ -121,7 +123,7 @@ export default function EditarProyectoPage({ params }: { params: { id: string } 
       estado_publicacion: newEP,
       publicado: (newEP as string) === 'publicado',
       submitted_at: newEP === 'en_revision' ? new Date().toISOString() : null,
-    }).eq('id', params.id)
+    }).eq('id', id)
     if (!err) {
       setForm(prev => ({ ...prev, estado_publicacion: newEP }))
       setSuccess(newEP === 'en_revision' ? 'Proyecto enviado a revisión' : 'Proyecto despublicado')
@@ -182,12 +184,12 @@ export default function EditarProyectoPage({ params }: { params: { id: string } 
           </div>
         </div>
         <div style={{display:'flex',gap:'8px',flexShrink:0}}>
-          <a href={`/desarrolladores/proyectos/${params.id}/unidades`} style={{
+          <a href={`/desarrolladores/proyectos/${id}/unidades`} style={{
             fontFamily:'var(--sans)',fontSize:'12px',background:'transparent',
             color:'var(--dk)',border:'1px solid var(--bd)',borderRadius:'var(--rp)',
             padding:'8px 16px',textDecoration:'none',display:'flex',alignItems:'center',gap:'5px'
           }}>📋 Unidades</a>
-          <a href={`/desarrolladores/proyectos/${params.id}/avance`} style={{
+          <a href={`/desarrolladores/proyectos/${id}/avance`} style={{
             fontFamily:'var(--sans)',fontSize:'12px',background:'transparent',
             color:'var(--dk)',border:'1px solid var(--bd)',borderRadius:'var(--rp)',
             padding:'8px 16px',textDecoration:'none',display:'flex',alignItems:'center',gap:'5px'
