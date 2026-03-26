@@ -7,7 +7,7 @@
   --bl:#1A4A9A;--bl-bg:#EBF0FA;
   --am:#92400E;--am-bg:#FEF3C7;
   --rd:#991B1B;--rd-bg:#FEF2F2;
-  --sans:'DM Sans',system-ui,sans-serif;
+  --sans:var(--font-dm-sans,'DM Sans'),system-ui,sans-serif;
   --r:10px;--rp:9999px;--rs:6px;
 }
 html{scroll-behavior:smooth}

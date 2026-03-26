@@ -1,3 +1,4 @@
+// Metadata se genera en layout — este es client component
 'use client'
 import { useState, useEffect, use } from 'react'
 import { createClient } from '@/lib/supabase/client'
