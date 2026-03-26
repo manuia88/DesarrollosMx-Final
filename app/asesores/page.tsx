@@ -43,7 +43,7 @@ export default function AsesorDashboard() {
       if (!user) return
 
       const { data: profile } = await supabase
-        .from('profiles').select('id, name').eq('user_id', user.id).single()
+        .from('profiles').select('id, name, whatsapp, slug').eq('user_id', user.id).single()
       if (!profile) return
       setAsesorId(profile.id)
       setAsesorName(profile.name)
@@ -57,6 +57,7 @@ export default function AsesorDashboard() {
         { data: comisiones },
         { data: proyectos },
         { data: alertas },
+        { data: o },
       ] = await Promise.all([
         supabase.from('leads').select('estado').eq('asesor_id', profile.id),
         supabase.from('wishlist').select('project_id').eq('user_id', user.id),
@@ -65,18 +66,52 @@ export default function AsesorDashboard() {
         supabase.from('comisiones').select('monto_estimado, estado').eq('asesor_id', profile.id),
         supabase.from('projects').select('id, nombre, estado, precio_desde, colonia, alcaldia, comision_pct, estado_publicacion').eq('publicado', true).order('destacado', {ascending: false}).limit(6),
         supabase.from('market_alerts').select('*').eq('leida', false).order('created_at', {ascending: false}).limit(10),
+        supabase.from('asesor_outcomes').select('resultado').eq('asesor_id', profile.id),
       ])
 
       const comisionTotal = (comisiones || [])
         .filter(c => c.estado !== 'cancelada')
         .reduce((sum, c) => sum + (c.monto_estimado || 0), 0)
 
-      const scoreBase = Math.min(100, Math.round(
-        ((leads || []).length > 0 ? 30 : 0) +
-        ((clientes || []).length > 0 ? 25 : 0) +
-        ((wishlist || []).length > 0 ? 20 : 0) +
-        ((visitas || []).length > 0 ? 25 : 0)
+      // Score calculado automáticamente — 5 dimensiones
+      const totalLeads = (leads || []).length
+      const totalClientes = (clientes || []).length
+      const totalWishlist = (wishlist || []).length
+      const totalVisitas = (visitas || []).length
+      const cerrados = (o || []).filter((x: {resultado: string}) => x.resultado === 'cerrado').length
+
+      // Dimensión 1: Actividad (25pts) — tiene leads, clientes, wishlist
+      const dim_actividad = Math.min(25, Math.round(
+        (totalLeads > 0 ? 8 : 0) +
+        (totalClientes > 0 ? 9 : 0) +
+        (totalWishlist > 0 ? 8 : 0)
       ))
+
+      // Dimensión 2: Conversión (30pts) — ratio cierres/leads
+      const dim_conversion = totalLeads > 0
+        ? Math.min(30, Math.round((cerrados / totalLeads) * 100))
+        : 0
+
+      // Dimensión 3: Engagement (20pts) — visitas agendadas + clientes activos
+      const dim_engagement = Math.min(20, Math.round(
+        (totalVisitas > 0 ? 10 : 0) +
+        (totalClientes >= 3 ? 10 : totalClientes >= 1 ? 5 : 0)
+      ))
+
+      // Dimensión 4: Perfil (15pts) — perfil completo
+      const dim_perfil = Math.min(15, Math.round(
+        (profile.name ? 5 : 0) +
+        (profile.whatsapp ? 5 : 0) +
+        (profile.slug ? 5 : 0)
+      ))
+
+      // Dimensión 5: Volumen (10pts) — escala de actividad
+      const dim_volumen = Math.min(10, Math.round(
+        (totalLeads >= 5 ? 5 : totalLeads >= 1 ? 2 : 0) +
+        (totalClientes >= 5 ? 5 : totalClientes >= 1 ? 2 : 0)
+      ))
+
+      const scoreBase = dim_actividad + dim_conversion + dim_engagement + dim_perfil + dim_volumen
 
       setStats({
         leadsTotal: (leads || []).length,
