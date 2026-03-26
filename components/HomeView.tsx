@@ -1,4 +1,5 @@
 'use client'
+import { useEffect, useState } from 'react'
 
 interface Project {
   id: string
@@ -40,6 +41,23 @@ export default function HomeView({
     if (estado === 'Preventa') return 'Preventa'
     return estado
   }
+
+  const [realStats, setRealStats] = useState({proyectos:'—',alcaldias:'—',unidades:'—'})
+  useEffect(() => {
+    const sb = (typeof window !== 'undefined') ? require('@/lib/supabase/client').createClient() : null
+    if (!sb) return
+    Promise.all([
+      sb.from('projects').select('id, alcaldia', {count:'exact'}).eq('publicado', true),
+      sb.from('unidades').select('id', {count:'exact'}).eq('estado', 'disponible'),
+    ]).then(([{data:projs,count:projCount},{count:udCount}]) => {
+      const alcaldias = new Set((projs||[]).map((p:{alcaldia:string})=>p.alcaldia).filter(Boolean))
+      setRealStats({
+        proyectos: String(projCount || 0),
+        alcaldias: String(alcaldias.size),
+        unidades: (udCount||0) > 999 ? `${((udCount||0)/1000).toFixed(1)}k+` : String(udCount||0),
+      })
+    })
+  }, [])
 
   return (
     <div>
@@ -112,9 +130,9 @@ export default function HomeView({
           </div>
           <div style={{display:'flex',gap:'36px',marginTop:'42px'}}>
             {[
-              {n:'47',l:'Proyectos activos'},
-              {n:'8',l:'Alcaldías cubiertas'},
-              {n:'3,200+',l:'Unidades disponibles'},
+              {n:realStats.proyectos,l:'Proyectos activos'},
+              {n:realStats.alcaldias,l:'Alcaldías cubiertas'},
+              {n:realStats.unidades,l:'Unidades disponibles'},
               {n:'Real time',l:'Info actualizada'},
             ].map((s,i) => (
               <div key={i}>

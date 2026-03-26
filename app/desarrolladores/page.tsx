@@ -38,6 +38,11 @@ export default function DashboardPage() {
   const [devId, setDevId] = useState<string | null>(null)
   const [devName, setDevName] = useState('')
   const [loading, setLoading] = useState(true)
+  const [velocity, setVelocity] = useState<{project:string,ventas_por_mes:number,meses_sold_out:number,tendencia:string}[]>([])
+  const [zonaComparison, setZonaComparison] = useState<{alcaldia:string,mi_precio_m2:number,zona_precio_m2:number,delta:number}[]>([])
+  const [tipologia, setTipologia] = useState<{tipo:string,total:number,vendidas:number,pct:number}[]>([])
+  const [competitors, setCompetitors] = useState<{project:string,comps:{nombre:string,precio_m2:number,absorcion_pct:number,ventas_por_mes:number,comision_pct:number,similarity_score:number,tipo_competencia:string}[]}[]>([])
+  const [insights, setInsights] = useState<{project:string,insights:{insight_type:string,severity:string,message:string,data_point:string}[]}[]>([])
   const supabase = createClient()
 
   useEffect(() => {
@@ -95,6 +100,61 @@ export default function DashboardPage() {
         totalLeads: leads.length,
         leadsNuevos: leads.filter(l => l.estado === 'Nuevo').length,
       })
+
+      // Velocity por proyecto
+      const velList: typeof velocity = []
+      for (const p of projList.filter(p => p.publicado)) {
+        try {
+          const { data: v } = await supabase.rpc('get_project_velocity', { p_project_id: p.id })
+          if (v?.[0]) velList.push({ project: p.nombre, ventas_por_mes: v[0].ventas_por_mes || 0, meses_sold_out: Math.min(v[0].meses_para_sold_out || 99, 99), tendencia: v[0].tendencia || 'estable' })
+        } catch {}
+      }
+      setVelocity(velList.sort((a, b) => b.ventas_por_mes - a.ventas_por_mes))
+
+      // Performance vs competencia (precio/m² vs zona)
+      if (projIds.length > 0) {
+        const { data: allProjs } = await supabase.from('projects').select('alcaldia, precio_desde, m2_min').eq('publicado', true)
+        const zonaAvg: Record<string, number[]> = {}
+        ;(allProjs || []).forEach((p: any) => { if (p.alcaldia && p.m2_min > 0) { if (!zonaAvg[p.alcaldia]) zonaAvg[p.alcaldia] = []; zonaAvg[p.alcaldia].push(p.precio_desde / p.m2_min) } })
+        const comparisons: typeof zonaComparison = []
+        projList.filter(p => p.publicado).forEach((p: any) => {
+          if (!p.alcaldia || !p.m2_min || p.m2_min <= 0) return
+          const miPrecio = Math.round(p.precio_desde / p.m2_min)
+          const zonaPrecios = zonaAvg[p.alcaldia] || []
+          const zonaProm = zonaPrecios.length > 0 ? Math.round(zonaPrecios.reduce((a: number, b: number) => a + b, 0) / zonaPrecios.length) : 0
+          if (zonaProm > 0) comparisons.push({ alcaldia: p.alcaldia, mi_precio_m2: miPrecio, zona_precio_m2: zonaProm, delta: Math.round((miPrecio - zonaProm) / zonaProm * 100) })
+        })
+        setZonaComparison(comparisons)
+      }
+
+      // Concentración de riesgo por tipología
+      if (projIds.length > 0) {
+        const { data: udsDetalle } = await supabase.from('unidades').select('recamaras, estado').in('project_id', projIds)
+        const tipoMap: Record<string, { total: number, vendidas: number }> = {}
+        ;(udsDetalle || []).forEach((u: any) => {
+          const key = u.recamaras + ' rec.'
+          if (!tipoMap[key]) tipoMap[key] = { total: 0, vendidas: 0 }
+          tipoMap[key].total++
+          if (u.estado === 'vendido') tipoMap[key].vendidas++
+        })
+        setTipologia(Object.entries(tipoMap).map(([tipo, v]) => ({ tipo, total: v.total, vendidas: v.vendidas, pct: v.total > 0 ? Math.round(v.vendidas / v.total * 100) : 0 })).sort((a, b) => b.pct - a.pct))
+      }
+
+      // Competencia e insights por proyecto
+      const compList: typeof competitors = []
+      const insList: typeof insights = []
+      for (const p of projList.filter(p => p.publicado)) {
+        try {
+          const [{ data: comps }, { data: ins }] = await Promise.all([
+            supabase.rpc('get_project_competitors', { p_project_id: p.id }),
+            supabase.rpc('get_competitive_insights', { p_project_id: p.id }),
+          ])
+          if (comps && comps.length > 0) compList.push({ project: p.nombre, comps: comps as any[] })
+          if (ins && ins.length > 0) insList.push({ project: p.nombre, insights: ins as any[] })
+        } catch {}
+      }
+      setCompetitors(compList)
+      setInsights(insList)
 
       setLoading(false)
     }
@@ -211,6 +271,147 @@ export default function DashboardPage() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* FUNNEL DE INVENTARIO */}
+      {stats.totalUnidades > 0 && (
+        <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'20px',marginBottom:'28px'}}>
+          <div style={{fontSize:'15px',fontWeight:500,color:'var(--dk)',marginBottom:'14px'}}>📊 Funnel de inventario</div>
+          <div style={{height:'28px',background:'var(--bg2)',borderRadius:'var(--rp)',overflow:'hidden',display:'flex',marginBottom:'10px'}}>
+            <div style={{height:'100%',background:'#DC2626',width:`${stats.unidadesVendidas/stats.totalUnidades*100}%`}} />
+            <div style={{height:'100%',background:'#F59E0B',width:`${stats.unidadesReservadas/stats.totalUnidades*100}%`}} />
+            <div style={{height:'100%',background:'#15803D',width:`${stats.unidadesDisponibles/stats.totalUnidades*100}%`}} />
+          </div>
+          <div style={{display:'flex',gap:'20px',fontSize:'12px'}}>
+            <span style={{color:'#DC2626'}}>● Vendidas: {stats.unidadesVendidas} ({Math.round(stats.unidadesVendidas/stats.totalUnidades*100)}%)</span>
+            <span style={{color:'#F59E0B'}}>● Reservadas: {stats.unidadesReservadas} ({Math.round(stats.unidadesReservadas/stats.totalUnidades*100)}%)</span>
+            <span style={{color:'#15803D'}}>● Disponibles: {stats.unidadesDisponibles} ({Math.round(stats.unidadesDisponibles/stats.totalUnidades*100)}%)</span>
+          </div>
+        </div>
+      )}
+
+      {/* VELOCITY POR PROYECTO */}
+      {velocity.length > 0 && (
+        <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'20px',marginBottom:'28px'}}>
+          <div style={{fontSize:'15px',fontWeight:500,color:'var(--dk)',marginBottom:'14px'}}>⚡ Velocity de ventas</div>
+          <div style={{display:'grid',gap:'8px'}}>
+            {velocity.map((v,i) => (
+              <div key={i} style={{display:'flex',alignItems:'center',gap:'14px',padding:'10px 14px',background:'var(--bg2)',borderRadius:'var(--rs)'}}>
+                <div style={{flex:1,fontSize:'13px',fontWeight:500,color:'var(--dk)'}}>{v.project}</div>
+                <div style={{textAlign:'center',minWidth:'60px'}}>
+                  <div style={{fontSize:'16px',fontWeight:700,color:'var(--dk)'}}>{v.ventas_por_mes}</div>
+                  <div style={{fontSize:'9px',color:'var(--mid)'}}>ventas/mes</div>
+                </div>
+                <div style={{textAlign:'center',minWidth:'50px'}}>
+                  <div style={{fontSize:'14px',fontWeight:600,color:v.meses_sold_out<=3?'#DC2626':v.meses_sold_out<=6?'#A16207':'var(--mid)'}}>{v.meses_sold_out<99?v.meses_sold_out+'m':'—'}</div>
+                  <div style={{fontSize:'9px',color:'var(--mid)'}}>sold out</div>
+                </div>
+                <span style={{fontSize:'10px',padding:'3px 8px',borderRadius:'var(--rp)',background:v.tendencia==='acelerando'?'#DCFCE7':v.tendencia==='desacelerando'?'#FEE2E2':'var(--bg2)',color:v.tendencia==='acelerando'?'#15803D':v.tendencia==='desacelerando'?'#DC2626':'var(--mid)'}}>{v.tendencia==='acelerando'?'🔥':v.tendencia==='desacelerando'?'⚠️':'→'} {v.tendencia}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'16px',marginBottom:'28px'}}>
+        {/* PERFORMANCE VS COMPETENCIA */}
+        {zonaComparison.length > 0 && (
+          <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'20px'}}>
+            <div style={{fontSize:'15px',fontWeight:500,color:'var(--dk)',marginBottom:'14px'}}>📊 Precio/m² vs zona</div>
+            {zonaComparison.map((z,i) => (
+              <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--bd2)'}}>
+                <div style={{fontSize:'12px',color:'var(--dk)',fontWeight:500}}>{z.alcaldia}</div>
+                <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
+                  <span style={{fontSize:'11px',color:'var(--mid)'}}>Tú: ${z.mi_precio_m2.toLocaleString('es-MX')}/m²</span>
+                  <span style={{fontSize:'11px',color:'var(--dim)'}}>Zona: ${z.zona_precio_m2.toLocaleString('es-MX')}/m²</span>
+                  <span style={{fontSize:'11px',fontWeight:600,padding:'2px 6px',borderRadius:'var(--rp)',background:z.delta<=-5?'#DCFCE7':z.delta>=5?'#FEE2E2':'var(--bg2)',color:z.delta<=-5?'#15803D':z.delta>=5?'#DC2626':'var(--mid)'}}>{z.delta>0?'+':''}{z.delta}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* CONCENTRACIÓN DE RIESGO */}
+        {tipologia.length > 0 && (
+          <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'20px'}}>
+            <div style={{fontSize:'15px',fontWeight:500,color:'var(--dk)',marginBottom:'14px'}}>🎯 Concentración por tipología</div>
+            {tipologia.map((t,i) => (
+              <div key={i} style={{marginBottom:'10px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:'12px',marginBottom:'4px'}}>
+                  <span style={{color:'var(--dk)',fontWeight:500}}>{t.tipo}</span>
+                  <span style={{color:'var(--mid)'}}>{t.vendidas}v / {t.total} total · {t.pct}% absorción</span>
+                </div>
+                <div style={{height:'8px',background:'var(--bg2)',borderRadius:'4px',overflow:'hidden'}}>
+                  <div style={{height:'100%',background:t.pct>=50?'#15803D':t.pct>=25?'#F59E0B':'#DC2626',borderRadius:'4px',width:`${Math.min(t.pct,100)}%`}} />
+                </div>
+              </div>
+            ))}
+            {tipologia.length === 1 && (
+              <div style={{fontSize:'11px',color:'#A16207',background:'#FEF9C3',padding:'8px 10px',borderRadius:'var(--rs)',marginTop:'8px'}}>⚠️ Concentración alta: todo tu inventario es de un solo tipo</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* INSIGHTS COMPETITIVOS */}
+      {insights.length > 0 && (
+        <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'20px',marginBottom:'28px'}}>
+          <div style={{fontSize:'15px',fontWeight:500,color:'var(--dk)',marginBottom:'14px'}}>💡 Insights competitivos</div>
+          <div style={{display:'grid',gap:'8px'}}>
+            {insights.map((proj,pi) => (
+              proj.insights.map((ins,ii) => (
+                <div key={`${pi}-${ii}`} style={{display:'flex',gap:'10px',padding:'10px 14px',borderRadius:'var(--rs)',background:ins.severity==='alta'?'#FEE2E2':ins.severity==='positivo'?'#DCFCE7':ins.severity==='media'?'#FEF9C3':'var(--bg2)',border:`1px solid ${ins.severity==='alta'?'#FECACA':ins.severity==='positivo'?'#BBF7D0':ins.severity==='media'?'#FDE68A':'var(--bd)'}`}}>
+                  <span style={{fontSize:'14px'}}>{ins.severity==='alta'?'🚨':ins.severity==='positivo'?'✅':ins.severity==='media'?'⚠️':'ℹ️'}</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:'12px',fontWeight:500,color:ins.severity==='alta'?'#DC2626':ins.severity==='positivo'?'#15803D':ins.severity==='media'?'#A16207':'var(--dk)',marginBottom:'2px'}}>{proj.project}</div>
+                    <div style={{fontSize:'12px',color:'var(--dk)',lineHeight:1.5}}>{ins.message}</div>
+                    {ins.data_point && <div style={{fontSize:'11px',color:'var(--mid)',marginTop:'3px'}}>{ins.data_point}</div>}
+                  </div>
+                </div>
+              ))
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* COMPETENCIA POR PROYECTO */}
+      {competitors.length > 0 && (
+        <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'20px',marginBottom:'28px'}}>
+          <div style={{fontSize:'15px',fontWeight:500,color:'var(--dk)',marginBottom:'4px'}}>🏟️ Competencia detectada</div>
+          <div style={{fontSize:'11px',color:'var(--mid)',marginBottom:'14px'}}>Proyectos que compiten directamente contigo en zona, precio y tipología</div>
+          {competitors.map((proj,pi) => (
+            <div key={pi} style={{marginBottom:pi<competitors.length-1?'16px':'0'}}>
+              <div style={{fontSize:'13px',fontWeight:600,color:'var(--dk)',marginBottom:'8px',padding:'6px 0',borderBottom:'1px solid var(--bd)'}}>{proj.project}</div>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px'}}>
+                <thead>
+                  <tr style={{background:'var(--bg2)'}}>
+                    {['Competidor','Tipo','Precio/m²','Absorción','Velocity','Comisión','Score'].map(h => (
+                      <th key={h} style={{padding:'7px 10px',textAlign:'left',fontWeight:500,color:'var(--mid)',borderBottom:'1px solid var(--bd)'}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {proj.comps.map((c,ci) => (
+                    <tr key={ci} style={{borderBottom:'1px solid var(--bd2)'}}>
+                      <td style={{padding:'7px 10px',fontWeight:500,color:'var(--dk)'}}>{c.nombre}</td>
+                      <td style={{padding:'7px 10px'}}><span style={{fontSize:'10px',padding:'2px 6px',borderRadius:'var(--rp)',background:c.tipo_competencia==='directa'?'#FEE2E2':c.tipo_competencia==='indirecta'?'#FEF9C3':'#EBF0FA',color:c.tipo_competencia==='directa'?'#DC2626':c.tipo_competencia==='indirecta'?'#A16207':'#1A4A9A'}}>{c.tipo_competencia}</span></td>
+                      <td style={{padding:'7px 10px',color:'var(--gr)'}}>${c.precio_m2?.toLocaleString('es-MX')}/m²</td>
+                      <td style={{padding:'7px 10px',fontWeight:600,color:c.absorcion_pct>=50?'#15803D':c.absorcion_pct>=25?'#A16207':'#DC2626'}}>{c.absorcion_pct}%</td>
+                      <td style={{padding:'7px 10px',color:'var(--dk)'}}>{c.ventas_por_mes}/mes</td>
+                      <td style={{padding:'7px 10px',color:'var(--mid)'}}>{c.comision_pct}%</td>
+                      <td style={{padding:'7px 10px'}}>
+                        <div style={{width:'40px',height:'6px',background:'var(--bg2)',borderRadius:'3px',overflow:'hidden'}}>
+                          <div style={{height:'100%',background:c.similarity_score>=70?'#DC2626':c.similarity_score>=40?'#F59E0B':'#3B82F6',width:`${c.similarity_score}%`}} />
+                        </div>
+                        <span style={{fontSize:'9px',color:'var(--dim)'}}>{c.similarity_score}%</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
         </div>
       )}
 
