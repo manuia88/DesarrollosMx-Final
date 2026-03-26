@@ -550,12 +550,12 @@ export default function PreciosView({ projectId }: { projectId: string }) {
                                   {l:'Cajones',v:u.cajones,gr:false},
                                   {l:'Bodega',v:u.bodega?'Incluida':'No incluida',gr:u.bodega},
                                   {l:'Ubicación',v:u.ubicacion||'—',gr:false},
-                                ].filter(Boolean).map((item,i)=>(
+                                ].filter(Boolean).map((item,i)=>item ? (
                                   <div key={i} style={{background:'var(--wh)',border:'1px solid var(--bd)',borderRadius:'var(--rs)',padding:'10px 14px',minWidth:'120px'}}>
                                     <div style={{fontSize:'10px',fontWeight:600,color:'var(--mid)',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:'3px'}}>{item.l}</div>
                                     <div style={{fontSize:'14px',fontWeight:500,color:item.gr?'var(--gr)':'var(--dk)'}}>{String(item.v)}</div>
                                   </div>
-                                ))}
+                                ) : null)}
                               </div>
                               <div style={{background:'var(--wh)',border:'1px solid var(--bd)',borderRadius:'var(--rs)',padding:'10px 14px',display:'flex',alignItems:'flex-start',gap:'10px',marginTop:'8px'}}>
                                 <div style={{fontSize:'20px',flexShrink:0,lineHeight:1}}>{caj.icon}</div>
