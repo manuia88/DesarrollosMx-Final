@@ -1,5 +1,6 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
+import { useRealtimeAlerts } from '@/lib/hooks/useRealtimeAlerts'
 import { createClient } from '@/lib/supabase/client'
 
 interface FeedItem {
@@ -7,6 +8,8 @@ interface FeedItem {
   titulo: string
   mensaje: string
   accion?: string
+  accion_href?: string
+  accion_whatsapp?: string
   dato?: string
   proyecto?: string
   cliente?: string
@@ -58,6 +61,8 @@ export default function AsesorDashboard() {
         { data: proyectos },
         { data: alertas },
         { data: o },
+        { data: visitasDetalle },
+        { data: foldersDetalle },
       ] = await Promise.all([
         supabase.from('leads').select('estado').eq('asesor_id', profile.id),
         supabase.from('wishlist').select('project_id').eq('user_id', user.id),
@@ -67,6 +72,8 @@ export default function AsesorDashboard() {
         supabase.from('projects').select('id, nombre, estado, precio_desde, colonia, alcaldia, comision_pct, estado_publicacion').eq('publicado', true).order('destacado', {ascending: false}).limit(6),
         supabase.from('market_alerts').select('*').eq('leida', false).order('created_at', {ascending: false}).limit(10),
         supabase.from('asesor_outcomes').select('resultado').eq('asesor_id', profile.id),
+        supabase.from('visitas').select('id, fecha_visita, estado, seguimiento_enviado, client_folders(nombre, whatsapp), projects(nombre)').eq('asesor_id', profile.id).in('estado', ['agendada','realizada']).order('fecha_visita', {ascending: true}).limit(10),
+        supabase.from('client_folders').select('id, nombre, whatsapp, ultimo_acceso_cliente, link_views, temperatura, updated_at').eq('asesor_id', profile.id).eq('temperatura', 'caliente').order('updated_at', {ascending: true}).limit(5),
       ])
 
       const comisionTotal = (comisiones || [])
@@ -125,10 +132,11 @@ export default function AsesorDashboard() {
 
       setProyectosDestacados((proyectos || []) as typeof proyectosDestacados)
 
-      // Generar feed desde alertas reales + datos del sistema
+      // Generar feed inteligente
       const feedItems: FeedItem[] = []
+      const now = new Date()
 
-      // Alertas reales de market_alerts
+      // 1. Alertas reales de market_alerts
       ;(alertas || []).forEach(a => {
         const tipoMap: Record<string, FeedItem['tipo']> = {
           'sold_out_inminente': 'CRITICO',
@@ -147,15 +155,92 @@ export default function AsesorDashboard() {
         })
       })
 
-      // Feed generado del sistema si no hay alertas
+      // 2. Visitas de mañana → recordatorio
+      ;(visitasDetalle || []).forEach((v: any) => {
+        const fechaVisita = new Date(v.fecha_visita)
+        const diffHrs = (fechaVisita.getTime() - now.getTime()) / (1000 * 60 * 60)
+        const clienteNombre = v.client_folders?.nombre || 'tu cliente'
+        const clienteWA = v.client_folders?.whatsapp || ''
+        const proyectoNombre = v.projects?.nombre || 'el proyecto'
+
+        if (diffHrs > 0 && diffHrs <= 24 && v.estado === 'agendada') {
+          const waText = encodeURIComponent(`Hola ${clienteNombre}, te recuerdo nuestra visita mañana a ${proyectoNombre}. ¿Confirmas asistencia? 📍`)
+          feedItems.push({
+            tipo: 'CLIENTE',
+            urgencia: 'ALTA',
+            titulo: '📅 VISITA MAÑANA — RECORDATORIO',
+            mensaje: `Visita con ${clienteNombre} a ${proyectoNombre} en menos de 24 horas. ¿Le mandas el recordatorio?`,
+            accion: '💬 Enviar recordatorio',
+            accion_whatsapp: clienteWA ? `https://wa.me/${clienteWA.replace(/[^0-9]/g,'')}?text=${waText}` : '',
+            accion_href: '/asesores/leads',
+            created_at: now.toISOString(),
+          })
+        }
+
+        // Visita realizada hace 48hrs sin seguimiento
+        if (diffHrs < -24 && diffHrs > -72 && v.estado === 'realizada' && !v.seguimiento_enviado) {
+          const waText = encodeURIComponent(`Hola ${clienteNombre}, fue un gusto mostrarte ${proyectoNombre}. ¿Quedó alguna duda que pueda resolver? 😊`)
+          feedItems.push({
+            tipo: 'CLIENTE',
+            urgencia: 'MEDIA',
+            titulo: '⏰ SEGUIMIENTO PENDIENTE',
+            mensaje: `Han pasado más de 24hrs desde tu visita con ${clienteNombre} a ${proyectoNombre}. Buen momento para dar seguimiento.`,
+            accion: '💬 Dar seguimiento',
+            accion_whatsapp: clienteWA ? `https://wa.me/${clienteWA.replace(/[^0-9]/g,'')}?text=${waText}` : '',
+            accion_href: '/asesores/leads',
+            created_at: now.toISOString(),
+          })
+        }
+      })
+
+      // 3. Clientes calientes sin contacto reciente
+      ;(foldersDetalle || []).forEach((f: any) => {
+        const ultimoAcceso = f.ultimo_acceso_cliente ? new Date(f.ultimo_acceso_cliente) : null
+        const ultimaActualizacion = new Date(f.updated_at)
+        const diasSinContacto = (now.getTime() - ultimaActualizacion.getTime()) / (1000 * 60 * 60 * 24)
+
+        // Cliente caliente sin contacto en 3+ días
+        if (diasSinContacto >= 3 && f.temperatura === 'caliente') {
+          const waText = encodeURIComponent(`Hola ${f.nombre}, ¿cómo vas con tu búsqueda? Tengo novedades que podrían interesarte 🏠`)
+          feedItems.push({
+            tipo: 'CLIENTE',
+            urgencia: 'ALTA',
+            titulo: '🔥 CLIENTE CALIENTE SIN CONTACTO',
+            mensaje: `${f.nombre} está caliente pero llevas ${Math.round(diasSinContacto)} días sin contactarlo. No lo dejes enfriar.`,
+            accion: '💬 Contactar ahora',
+            accion_whatsapp: f.whatsapp ? `https://wa.me/${f.whatsapp.replace(/[^0-9]/g,'')}?text=${waText}` : '',
+            accion_href: `/asesores/clientes`,
+            created_at: now.toISOString(),
+          })
+        }
+
+        // Cliente abrió link recientemente
+        if (ultimoAcceso) {
+          const minsDesdeAcceso = (now.getTime() - ultimoAcceso.getTime()) / (1000 * 60)
+          if (minsDesdeAcceso <= 60) {
+            feedItems.push({
+              tipo: 'CRITICO',
+              urgencia: 'CRITICA',
+              titulo: '👁 CLIENTE REVISANDO TU LINK AHORA',
+              mensaje: `${f.nombre} acaba de abrir el link privado que compartiste. Hace ${Math.round(minsDesdeAcceso)} minutos. Momento ideal para llamar.`,
+              accion: '💬 Llamar ahora',
+              accion_whatsapp: f.whatsapp ? `https://wa.me/${f.whatsapp.replace(/[^0-9]/g,'')}` : '',
+              accion_href: `/asesores/clientes`,
+              created_at: now.toISOString(),
+            })
+          }
+        }
+      })
+
+      // 4. Feed base si no hay alertas específicas
       if (feedItems.length === 0) {
         if ((proyectos || []).length > 0) {
-          const p = proyectos![0]
           feedItems.push({
             tipo: 'NUEVO',
             titulo: 'CATÁLOGO ACTUALIZADO',
-            mensaje: `${proyectos!.length} proyectos disponibles en el portal. Explora el catálogo para encontrar oportunidades para tus clientes.`,
+            mensaje: `${(proyectos || []).length} proyectos disponibles en el portal. Explora el catálogo para encontrar oportunidades para tus clientes.`,
             accion: 'Ver catálogo',
+            accion_href: '/asesores/catalogo',
           })
         }
         if ((clientes || []).length === 0) {
@@ -164,6 +249,7 @@ export default function AsesorDashboard() {
             titulo: 'COMIENZA A USAR EL PORTAL',
             mensaje: 'Crea carpetas para tus clientes y empieza a hacer match automático con proyectos.',
             accion: 'Crear primer cliente',
+            accion_href: '/asesores/clientes',
           })
         }
         if ((wishlist || []).length === 0) {
@@ -172,9 +258,14 @@ export default function AsesorDashboard() {
             titulo: 'GUARDA TUS PROYECTOS FAVORITOS',
             mensaje: 'Guarda proyectos en tu wishlist para seguir su actividad y recibir alertas de precio.',
             accion: 'Ver catálogo',
+            accion_href: '/asesores/catalogo',
           })
         }
       }
+
+      // Ordenar por urgencia
+      const urgenciaOrder: Record<string, number> = { 'CRITICA': 0, 'ALTA': 1, 'MEDIA': 2, 'BAJA': 3 }
+      feedItems.sort((a, b) => (urgenciaOrder[a.urgencia || 'BAJA'] || 3) - (urgenciaOrder[b.urgencia || 'BAJA'] || 3))
 
       setFeed(feedItems)
       setLoading(false)
@@ -303,13 +394,29 @@ export default function AsesorDashboard() {
                     {item.dato && (
                       <div style={{fontSize:'11px',fontWeight:600,color:'var(--dk)',marginBottom:'8px'}}>{item.dato}</div>
                     )}
-                    {item.accion && (
-                      <a href={item.accion.includes('catálogo') ? '/asesores/catalogo' : '/asesores/clientes'} style={{
-                        fontFamily:'var(--sans)',fontSize:'11px',background:'var(--dk)',
-                        color:'#fff',border:'none',borderRadius:'var(--rp)',
-                        padding:'5px 12px',textDecoration:'none',display:'inline-block'
-                      }}>{item.accion} →</a>
-                    )}
+                    <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                      {item.accion_whatsapp && (
+                        <a href={item.accion_whatsapp} target="_blank" style={{
+                          fontFamily:'var(--sans)',fontSize:'11px',background:'#25D366',
+                          color:'#fff',border:'none',borderRadius:'var(--rp)',
+                          padding:'5px 12px',textDecoration:'none',display:'inline-block'
+                        }}>{item.accion}</a>
+                      )}
+                      {!item.accion_whatsapp && item.accion && (
+                        <a href={item.accion_href || '/asesores/catalogo'} style={{
+                          fontFamily:'var(--sans)',fontSize:'11px',background:'var(--dk)',
+                          color:'#fff',border:'none',borderRadius:'var(--rp)',
+                          padding:'5px 12px',textDecoration:'none',display:'inline-block'
+                        }}>{item.accion} →</a>
+                      )}
+                      {item.accion_href && item.accion_whatsapp && (
+                        <a href={item.accion_href} style={{
+                          fontFamily:'var(--sans)',fontSize:'11px',background:'transparent',
+                          color:'var(--dk)',border:'1px solid var(--bd)',borderRadius:'var(--rp)',
+                          padding:'5px 12px',textDecoration:'none',display:'inline-block'
+                        }}>Ver detalle →</a>
+                      )}
+                    </div>
                   </div>
                 )
               })}
