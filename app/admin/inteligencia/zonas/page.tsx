@@ -129,6 +129,38 @@ export default function ZonasPage() {
           )
         })()}
       </div>
+
+      {/* CONCENTRACIÓN DE COMPETENCIA POR ZONA */}
+      <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'20px',marginTop:'20px'}}>
+        <div style={{fontSize:'14px',fontWeight:500,color:'var(--dk)',marginBottom:'4px'}}>🏟️ Concentración de competencia por zona</div>
+        <div style={{fontSize:'11px',color:'var(--mid)',marginBottom:'14px'}}>Cuántos proyectos compiten entre sí por alcaldía</div>
+        <div style={{display:'grid',gap:'8px'}}>
+          {zonas.filter(z => z.proyectos.length > 1).map(z => {
+            const concentration = z.proyectos.length
+            const level = concentration >= 5 ? 'Alta' : concentration >= 3 ? 'Media' : 'Baja'
+            const levelColor = concentration >= 5 ? '#DC2626' : concentration >= 3 ? '#A16207' : '#15803D'
+            const levelBg = concentration >= 5 ? '#FEE2E2' : concentration >= 3 ? '#FEF9C3' : '#DCFCE7'
+            return (
+              <div key={z.alcaldia} style={{display:'flex',alignItems:'center',gap:'14px',padding:'10px 14px',background:'var(--bg2)',borderRadius:'var(--rs)'}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:'13px',fontWeight:500,color:'var(--dk)'}}>{z.alcaldia}</div>
+                  <div style={{fontSize:'11px',color:'var(--mid)'}}>{concentration} proyectos compitiendo · {z.disponibles} unidades disponibles</div>
+                </div>
+                <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+                  <div style={{textAlign:'center'}}>
+                    <div style={{fontSize:'16px',fontWeight:700,color:'var(--dk)'}}>{concentration}</div>
+                    <div style={{fontSize:'9px',color:'var(--mid)'}}>proyectos</div>
+                  </div>
+                  <span style={{fontSize:'10px',fontWeight:600,padding:'3px 10px',borderRadius:'var(--rp)',background:levelBg,color:levelColor}}>Competencia {level}</span>
+                </div>
+              </div>
+            )
+          })}
+          {zonas.filter(z => z.proyectos.length > 1).length === 0 && (
+            <div style={{textAlign:'center',color:'var(--mid)',padding:'20px',fontSize:'12px'}}>Se necesitan múltiples proyectos por zona para detectar competencia</div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

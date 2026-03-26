@@ -38,6 +38,8 @@ interface ProjectWithScore extends Project {
   tendencia: string
   fecha_sold_out: string | null
   health_signals: {signal:string,severity:string,detail:string}[]
+  competitors_direct: number
+  competitors_indirect: number
   precio_m2: number
   precio_m2_zona: number
   delta_zona_pct: number
@@ -83,12 +85,20 @@ export default function CatalogoPage() {
       // Cargar velocity real por proyecto
       const velocityMap: Record<string, {ventas_por_mes:number,meses_para_sold_out:number,tendencia:string,fecha_estimada_sold_out:string|null}> = {}
       const healthMap: Record<string, {signal:string,severity:string,detail:string}[]> = {}
+      const compMap: Record<string, {direct:number,indirect:number}> = {}
       await Promise.all(projIds.map(async (pid) => {
         try {
-          const [{ data: vel }, { data: health }] = await Promise.all([
+          const [{ data: vel }, { data: health }, { data: comps }] = await Promise.all([
             supabase.rpc('get_project_velocity', { p_project_id: pid }),
             supabase.rpc('get_project_health', { p_project_id: pid }),
+            supabase.rpc('get_project_competitors', { p_project_id: pid }),
           ])
+          if (comps && comps.length > 0) {
+            compMap[pid] = {
+              direct: comps.filter((c: {tipo_competencia:string}) => c.tipo_competencia === 'directa').length,
+              indirect: comps.filter((c: {tipo_competencia:string}) => c.tipo_competencia === 'indirecta').length,
+            }
+          }
           if (vel && vel.length > 0) {
             velocityMap[pid] = {
               ventas_por_mes: vel[0].ventas_por_mes || 0,
@@ -145,6 +155,8 @@ export default function CatalogoPage() {
           tendencia: vel.tendencia,
           fecha_sold_out: vel.fecha_estimada_sold_out,
           health_signals: healthMap[p.id] || [],
+          competitors_direct: compMap[p.id]?.direct || 0,
+          competitors_indirect: compMap[p.id]?.indirect || 0,
           precio_m2,
           precio_m2_zona: 0, // se calcula después
           delta_zona_pct: 0, // se calcula después
@@ -416,6 +428,18 @@ export default function CatalogoPage() {
                           <span style={{fontSize:'10px',color: h.severity==='critica'?'#DC2626':h.severity==='alta'?'#A16207':'var(--mid)'}}>{h.detail}</span>
                         </div>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Competencia */}
+                  {(p.competitors_direct > 0 || p.competitors_indirect > 0) && (
+                    <div style={{display:'flex',alignItems:'center',gap:'5px',background:'#EBF0FA',borderRadius:'var(--rs)',padding:'4px 10px'}}>
+                      <span style={{fontSize:'10px'}}>🏟️</span>
+                      <span style={{fontSize:'10px',color:'#1A4A9A'}}>
+                        {p.competitors_direct > 0 ? `${p.competitors_direct} competidor${p.competitors_direct>1?'es':''} directo${p.competitors_direct>1?'s':''}` : ''}
+                        {p.competitors_direct > 0 && p.competitors_indirect > 0 ? ' · ' : ''}
+                        {p.competitors_indirect > 0 ? `${p.competitors_indirect} indirecto${p.competitors_indirect>1?'s':''}` : ''}
+                      </span>
                     </div>
                   )}
                 </div>
