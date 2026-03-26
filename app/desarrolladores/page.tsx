@@ -41,6 +41,9 @@ export default function DashboardPage() {
   const [velocity, setVelocity] = useState<{project:string,ventas_por_mes:number,meses_sold_out:number,tendencia:string}[]>([])
   const [zonaComparison, setZonaComparison] = useState<{alcaldia:string,mi_precio_m2:number,zona_precio_m2:number,delta:number}[]>([])
   const [tipologia, setTipologia] = useState<{tipo:string,total:number,vendidas:number,pct:number}[]>([])
+  const [compMode, setCompMode] = useState<'auto'|'manual'>('auto')
+  const [manualCompIds, setManualCompIds] = useState<Set<string>>(new Set())
+  const [allProjects, setAllProjects] = useState<{id:string,nombre:string,alcaldia:string,colonia:string}[]>([])
   const [competitors, setCompetitors] = useState<{project:string,comps:{nombre:string,precio_m2:number,absorcion_pct:number,ventas_por_mes:number,comision_pct:number,similarity_score:number,tipo_competencia:string}[]}[]>([])
   const [insights, setInsights] = useState<{project:string,insights:{insight_type:string,severity:string,message:string,data_point:string}[]}[]>([])
   const supabase = createClient()
@@ -155,6 +158,10 @@ export default function DashboardPage() {
       }
       setCompetitors(compList)
       setInsights(insList)
+
+      // Cargar todos los proyectos para selector manual
+      const { data: ap } = await supabase.from('projects').select('id, nombre, alcaldia, colonia').eq('publicado', true).order('nombre')
+      setAllProjects(((ap || []) as typeof allProjects).filter(p => !projIds.includes(p.id)))
 
       setLoading(false)
     }
@@ -376,23 +383,90 @@ export default function DashboardPage() {
       )}
 
       {/* COMPETENCIA POR PROYECTO */}
-      {competitors.length > 0 && (
-        <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'20px',marginBottom:'28px'}}>
-          <div style={{fontSize:'15px',fontWeight:500,color:'var(--dk)',marginBottom:'4px'}}>🏟️ Competencia detectada</div>
-          <div style={{fontSize:'11px',color:'var(--mid)',marginBottom:'14px'}}>Proyectos que compiten directamente contigo en zona, precio y tipología</div>
-          {competitors.map((proj,pi) => (
+      <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'20px',marginBottom:'28px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
+          <div>
+            <div style={{fontSize:'15px',fontWeight:500,color:'var(--dk)',marginBottom:'2px'}}>🏟️ Análisis de competencia</div>
+            <div style={{fontSize:'11px',color:'var(--mid)'}}>IA detecta tu competencia automáticamente o elige manualmente</div>
+          </div>
+          <div style={{display:'flex',gap:'4px'}}>
+            <button onClick={() => setCompMode('auto')} style={{fontFamily:'var(--sans)',fontSize:'11px',padding:'5px 12px',borderRadius:'var(--rp)',border:compMode==='auto'?'none':'1px solid var(--bd)',background:compMode==='auto'?'var(--dk)':'var(--wh)',color:compMode==='auto'?'#fff':'var(--mid)',cursor:'pointer'}}>🤖 IA automática</button>
+            <button onClick={() => setCompMode('manual')} style={{fontFamily:'var(--sans)',fontSize:'11px',padding:'5px 12px',borderRadius:'var(--rp)',border:compMode==='manual'?'none':'1px solid var(--bd)',background:compMode==='manual'?'var(--dk)':'var(--wh)',color:compMode==='manual'?'#fff':'var(--mid)',cursor:'pointer'}}>✏️ Elegir manual</button>
+          </div>
+        </div>
+
+        {/* MODO MANUAL — Selector */}
+        {compMode === 'manual' && (
+          <div style={{background:'var(--bg2)',borderRadius:'var(--rs)',padding:'14px',marginBottom:'14px'}}>
+            <div style={{fontSize:'12px',fontWeight:500,color:'var(--dk)',marginBottom:'8px'}}>Selecciona proyectos para comparar:</div>
+            <div style={{display:'flex',gap:'6px',flexWrap:'wrap',maxHeight:'120px',overflowY:'auto'}}>
+              {allProjects.map(p => {
+                const selected = manualCompIds.has(p.id)
+                return (
+                  <button key={p.id} onClick={() => {
+                    const next = new Set(manualCompIds)
+                    if (selected) next.delete(p.id); else if (next.size < 5) next.add(p.id)
+                    setManualCompIds(next)
+                  }} style={{fontFamily:'var(--sans)',fontSize:'10px',padding:'4px 10px',borderRadius:'var(--rp)',border:selected?'2px solid var(--gr)':'1px solid var(--bd)',background:selected?'var(--gr-bg)':'var(--wh)',color:selected?'var(--gr)':'var(--mid)',cursor:'pointer'}}>
+                    {selected ? '✓ ' : ''}{p.nombre} · {p.colonia}
+                  </button>
+                )
+              })}
+            </div>
+            {manualCompIds.size > 0 && <div style={{fontSize:'10px',color:'var(--gr)',marginTop:'6px'}}>{manualCompIds.size} seleccionado{manualCompIds.size>1?'s':''} (máx. 5)</div>}
+          </div>
+        )}
+
+        {/* TABLA DE COMPETENCIA */}
+        {competitors.map((proj,pi) => {
+          const compsToShow = compMode === 'manual' && manualCompIds.size > 0
+            ? proj.comps.filter(c => manualCompIds.has((c as any).competitor_id || ''))
+            : proj.comps
+          const allComps = compMode === 'manual' && manualCompIds.size > 0 ? proj.comps : proj.comps
+
+          return (
             <div key={pi} style={{marginBottom:pi<competitors.length-1?'16px':'0'}}>
-              <div style={{fontSize:'13px',fontWeight:600,color:'var(--dk)',marginBottom:'8px',padding:'6px 0',borderBottom:'1px solid var(--bd)'}}>{proj.project}</div>
+              <div style={{fontSize:'13px',fontWeight:600,color:'var(--dk)',marginBottom:'8px',padding:'6px 0',borderBottom:'1px solid var(--bd)'}}>
+                {proj.project}
+                {compMode === 'auto' && <span style={{fontSize:'10px',fontWeight:400,color:'var(--mid)',marginLeft:'8px'}}>· {allComps.length} competidores detectados por IA</span>}
+              </div>
+
+              {/* RADAR VISUAL — 6 dimensiones */}
+              {allComps.length > 0 && (() => {
+                const avgPrecio = allComps.reduce((s,c) => s + (c.precio_m2||0), 0) / allComps.length
+                const avgAbsorcion = allComps.reduce((s,c) => s + (c.absorcion_pct||0), 0) / allComps.length
+                const avgVelocity = allComps.reduce((s,c) => s + (c.ventas_por_mes||0), 0) / allComps.length
+                const avgComision = allComps.reduce((s,c) => s + (c.comision_pct||0), 0) / allComps.length
+                const dims = [
+                  {l:'Precio/m²',comp:`$${Math.round(avgPrecio).toLocaleString('es-MX')}`,better:true},
+                  {l:'Absorción',comp:`${Math.round(avgAbsorcion)}%`,better:false},
+                  {l:'Velocity',comp:`${avgVelocity.toFixed(1)}/mes`,better:false},
+                  {l:'Comisión',comp:`${avgComision.toFixed(1)}%`,better:false},
+                  {l:'Competidores',comp:`${allComps.length}`,better:false},
+                  {l:'Directos',comp:`${allComps.filter(c=>c.tipo_competencia==='directa').length}`,better:false},
+                ]
+                return (
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:'6px',marginBottom:'12px'}}>
+                    {dims.map((d,i) => (
+                      <div key={i} style={{background:'var(--bg2)',borderRadius:'var(--rs)',padding:'8px',textAlign:'center'}}>
+                        <div style={{fontSize:'13px',fontWeight:600,color:'var(--dk)'}}>{d.comp}</div>
+                        <div style={{fontSize:'9px',color:'var(--mid)',marginTop:'2px'}}>{d.l} (prom.)</div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px'}}>
                 <thead>
                   <tr style={{background:'var(--bg2)'}}>
-                    {['Competidor','Tipo','Precio/m²','Absorción','Velocity','Comisión','Score'].map(h => (
+                    {['Competidor','Tipo','Precio/m²','Absorción','Velocity','Comisión','Similitud'].map(h => (
                       <th key={h} style={{padding:'7px 10px',textAlign:'left',fontWeight:500,color:'var(--mid)',borderBottom:'1px solid var(--bd)'}}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {proj.comps.map((c,ci) => (
+                  {(compMode === 'manual' && manualCompIds.size > 0 ? allComps : allComps).map((c,ci) => (
                     <tr key={ci} style={{borderBottom:'1px solid var(--bd2)'}}>
                       <td style={{padding:'7px 10px',fontWeight:500,color:'var(--dk)'}}>{c.nombre}</td>
                       <td style={{padding:'7px 10px'}}><span style={{fontSize:'10px',padding:'2px 6px',borderRadius:'var(--rp)',background:c.tipo_competencia==='directa'?'#FEE2E2':c.tipo_competencia==='indirecta'?'#FEF9C3':'#EBF0FA',color:c.tipo_competencia==='directa'?'#DC2626':c.tipo_competencia==='indirecta'?'#A16207':'#1A4A9A'}}>{c.tipo_competencia}</span></td>
@@ -411,9 +485,10 @@ export default function DashboardPage() {
                 </tbody>
               </table>
             </div>
-          ))}
-        </div>
-      )}
+          )
+        })}
+        {competitors.length === 0 && <div style={{textAlign:'center',color:'var(--mid)',padding:'20px',fontSize:'12px'}}>La competencia se detecta automáticamente cuando hay proyectos publicados en la misma zona</div>}
+      </div>
 
       {/* ALERTAS DE MERCADO */}
       <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',marginBottom:'28px'}}>
