@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import ProjectCard from './ProjectCard'
 
@@ -38,14 +38,58 @@ export default function ExplorarView({
     entrega: '',
   })
   const [orden, setOrden] = useState('recomendados')
+  const sessionId = useRef<string>(Math.random().toString(36).slice(2))
+  const searchStart = useRef<number>(Date.now())
   const supabase = createClient()
 
   useEffect(() => {
     fetchProjects()
   }, [filtros, orden])
 
+  // Track search log silencioso
+  const logSearch = useCallback(async (results: Project[], hadResults: boolean) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const precioMap: Record<string, { min?: number; max?: number }> = {
+        'menos4': { max: 4000000 },
+        '4a7':    { min: 4000000, max: 7000000 },
+        '7a12':   { min: 7000000, max: 12000000 },
+        'mas12':  { min: 12000000 },
+      }
+      const precioRange = precioMap[filtros.precio] || {}
+      await supabase.from('search_logs').insert({
+        user_id: user?.id || null,
+        session_id: sessionId.current,
+        alcaldia: filtros.alcaldia || null,
+        precio_min: precioRange.min || null,
+        precio_max: precioRange.max || null,
+        recamaras: filtros.recamaras ? parseInt(filtros.recamaras) : null,
+        entrega: filtros.entrega || null,
+        results_count: results.length,
+        had_results: hadResults,
+      })
+    } catch { /* silencioso */ }
+  }, [filtros])
+
+  // Track event genérico
+  const trackEvent = useCallback(async (eventType: string, entityId?: string, metadata?: Record<string, unknown>) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      await supabase.from('events').insert({
+        user_id: user?.id || null,
+        session_id: sessionId.current,
+        event_type: eventType,
+        entity_type: 'project',
+        entity_id: entityId || null,
+        metadata: metadata || {},
+        device: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+      })
+    } catch { /* silencioso */ }
+  }, [])
+
   async function fetchProjects() {
     setLoading(true)
+    searchStart.current = Date.now()
     let query = supabase
       .from('projects')
       .select('*, fotos(url, is_hero, orden)')
@@ -71,12 +115,71 @@ export default function ExplorarView({
     else query = query.order('destacado', { ascending: false }).order('created_at', { ascending: false })
 
     const { data } = await query
-    setProjects((data as Project[]) || [])
+    const results = (data as Project[]) || []
+    setProjects(results)
     setLoading(false)
+
+    // Log búsqueda silencioso — solo si hay algún filtro activo
+    const anyFilter = Object.values(filtros).some(v => v !== '')
+    if (anyFilter) {
+      logSearch(results, results.length > 0)
+      // Si no hay resultados, es demanda no atendida
+      if (results.length === 0 && filtros.alcaldia) {
+        try {
+          const precioMap: Record<string, number> = {
+            'menos4': 4000000, '4a7': 7000000, '7a12': 12000000, 'mas12': 20000000
+          }
+          await supabase.from('unmet_demand').upsert({
+            alcaldia: filtros.alcaldia,
+            precio_max: precioMap[filtros.precio] || null,
+            recamaras: filtros.recamaras ? parseInt(filtros.recamaras) : null,
+            busquedas_count: 1,
+            semana: new Date().toISOString().slice(0,10),
+          }, {
+            onConflict: 'alcaldia,precio_max,recamaras,semana',
+            ignoreDuplicates: false
+          }).then(({ error }) => {
+            if (!error) {
+              // Incrementar counter si ya existe
+              supabase.rpc('increment_unmet_demand', {
+                p_alcaldia: filtros.alcaldia,
+                p_precio_max: precioMap[filtros.precio] || null,
+                p_recamaras: filtros.recamaras ? parseInt(filtros.recamaras) : null,
+              })
+            }
+          })
+        } catch { /* silencioso */ }
+      }
+    }
+
+    // Track evento de búsqueda
+    trackEvent('search', undefined, {
+      filtros,
+      results_count: results.length,
+      duration_ms: Date.now() - searchStart.current,
+    })
   }
 
   function updateFiltro(key: string, value: string) {
     setFiltros(prev => ({ ...prev, [key]: value }))
+  }
+
+  // Track click en proyecto
+  function handleProjectClick(projectId: string, position: number) {
+    trackEvent('view_project', projectId, { position, filtros })
+    // Actualizar search_log con el proyecto clickeado
+    supabase.from('search_logs')
+      .select('id').eq('session_id', sessionId.current)
+      .order('created_at', { ascending: false }).limit(1)
+      .then(({ data }) => {
+        if (data?.[0]?.id) {
+          supabase.from('search_logs').update({
+            clicked_project_id: projectId,
+            clicked_position: position,
+          }).eq('id', data[0].id).then(() => {})
+        }
+      })
+    onNavigate('detail', projectId)
   }
 
   const pillStyle = {
@@ -130,41 +233,27 @@ export default function ExplorarView({
         <div style={pillStyle}>
           <select style={selectStyle} value={filtros.alcaldia} onChange={e => updateFiltro('alcaldia', e.target.value)}>
             <option value=''>Alcaldías</option>
-            <option>Álvaro Obregón</option>
-            <option>Azcapotzalco</option>
-            <option>Benito Juárez</option>
-            <option>Coyoacán</option>
-            <option>Cuajimalpa</option>
-            <option>Cuauhtémoc</option>
-            <option>GAM</option>
-            <option>Iztacalco</option>
-            <option>Iztapalapa</option>
-            <option>Magdalena Contreras</option>
-            <option>Miguel Hidalgo</option>
-            <option>Milpa Alta</option>
-            <option>Tláhuac</option>
-            <option>Tlalpan</option>
-            <option>Venustiano Carranza</option>
-            <option>Xochimilco</option>
+            <option>Álvaro Obregón</option><option>Azcapotzalco</option>
+            <option>Benito Juárez</option><option>Coyoacán</option>
+            <option>Cuajimalpa</option><option>Cuauhtémoc</option>
+            <option>GAM</option><option>Iztacalco</option>
+            <option>Iztapalapa</option><option>Magdalena Contreras</option>
+            <option>Miguel Hidalgo</option><option>Milpa Alta</option>
+            <option>Tláhuac</option><option>Tlalpan</option>
+            <option>Venustiano Carranza</option><option>Xochimilco</option>
           </select>
           <span style={{fontSize:'10px',color:'var(--mid)'}}>▾</span>
         </div>
-
         <div style={sepStyle} />
-
         <div style={pillStyle}>
           <select style={selectStyle} value={filtros.tipo} onChange={e => updateFiltro('tipo', e.target.value)}>
             <option value=''>Tipo</option>
-            <option>Residencial</option>
-            <option>Boutique</option>
-            <option>Corporativo</option>
-            <option>Mixto</option>
+            <option>Residencial</option><option>Boutique</option>
+            <option>Corporativo</option><option>Mixto</option>
           </select>
           <span style={{fontSize:'10px',color:'var(--mid)'}}>▾</span>
         </div>
-
         <div style={sepStyle} />
-
         <div style={pillStyle}>
           <select style={selectStyle} value={filtros.precio} onChange={e => updateFiltro('precio', e.target.value)}>
             <option value=''>Precio</option>
@@ -175,22 +264,16 @@ export default function ExplorarView({
           </select>
           <span style={{fontSize:'10px',color:'var(--mid)'}}>▾</span>
         </div>
-
         <div style={sepStyle} />
-
         <div style={pillStyle}>
           <select style={selectStyle} value={filtros.recamaras} onChange={e => updateFiltro('recamaras', e.target.value)}>
             <option value=''>Recámaras</option>
-            <option value='1'>1</option>
-            <option value='2'>2</option>
-            <option value='3'>3</option>
-            <option value='3+'>3+</option>
+            <option value='1'>1</option><option value='2'>2</option>
+            <option value='3'>3</option><option value='3+'>3+</option>
           </select>
           <span style={{fontSize:'10px',color:'var(--mid)'}}>▾</span>
         </div>
-
         <div style={sepStyle} />
-
         <div style={pillStyle}>
           <select style={selectStyle} value={filtros.entrega} onChange={e => updateFiltro('entrega', e.target.value)}>
             <option value=''>Entrega</option>
@@ -201,9 +284,7 @@ export default function ExplorarView({
           </select>
           <span style={{fontSize:'10px',color:'var(--mid)'}}>▾</span>
         </div>
-
         <div style={sepStyle} />
-
         <div style={pillStyle} onClick={() => alert('Más filtros: m², amenidades, comisión…')}>
           Más filtros ⚙
         </div>
@@ -271,8 +352,10 @@ export default function ExplorarView({
                 <div style={{padding:'40px',textAlign:'center',color:'var(--mid)'}}>Cargando proyectos...</div>
               ) : projects.length === 0 ? (
                 <div style={{padding:'40px',textAlign:'center',color:'var(--mid)'}}>No se encontraron proyectos con estos filtros.</div>
-              ) : projects.map(p => (
-                <ProjectCard key={p.id} project={p} onNavigate={onNavigate} size='list' />
+              ) : projects.map((p, idx) => (
+                <div key={p.id} onClick={() => handleProjectClick(p.id, idx)}>
+                  <ProjectCard project={p} onNavigate={onNavigate} size='list' />
+                </div>
               ))}
             </div>
           </div>
@@ -300,8 +383,10 @@ export default function ExplorarView({
             <div style={{gridColumn:'span 3',padding:'40px',textAlign:'center',color:'var(--mid)'}}>
               No se encontraron proyectos con estos filtros.
             </div>
-          ) : projects.map(p => (
-            <ProjectCard key={p.id} project={p} onNavigate={onNavigate} size='grid' />
+          ) : projects.map((p, idx) => (
+            <div key={p.id} onClick={() => handleProjectClick(p.id, idx)} style={{cursor:'pointer'}}>
+              <ProjectCard project={p} onNavigate={onNavigate} size='grid' />
+            </div>
           ))}
         </div>
       )}
