@@ -37,6 +37,7 @@ interface ProjectWithScore extends Project {
   ventas_por_mes: number
   tendencia: string
   fecha_sold_out: string | null
+  health_signals: {signal:string,severity:string,detail:string}[]
   precio_m2: number
   precio_m2_zona: number
   delta_zona_pct: number
@@ -81,9 +82,13 @@ export default function CatalogoPage() {
 
       // Cargar velocity real por proyecto
       const velocityMap: Record<string, {ventas_por_mes:number,meses_para_sold_out:number,tendencia:string,fecha_estimada_sold_out:string|null}> = {}
+      const healthMap: Record<string, {signal:string,severity:string,detail:string}[]> = {}
       await Promise.all(projIds.map(async (pid) => {
         try {
-          const { data: vel } = await supabase.rpc('get_project_velocity', { p_project_id: pid })
+          const [{ data: vel }, { data: health }] = await Promise.all([
+            supabase.rpc('get_project_velocity', { p_project_id: pid }),
+            supabase.rpc('get_project_health', { p_project_id: pid }),
+          ])
           if (vel && vel.length > 0) {
             velocityMap[pid] = {
               ventas_por_mes: vel[0].ventas_por_mes || 0,
@@ -91,6 +96,9 @@ export default function CatalogoPage() {
               tendencia: vel[0].tendencia || 'estable',
               fecha_estimada_sold_out: vel[0].fecha_estimada_sold_out || null,
             }
+          }
+          if (health && health.length > 0) {
+            healthMap[pid] = health.filter((h: {signal:string}) => h.signal !== 'saludable')
           }
         } catch { /* silencioso */ }
       }))
@@ -136,6 +144,7 @@ export default function CatalogoPage() {
           ventas_por_mes: vel.ventas_por_mes,
           tendencia: vel.tendencia,
           fecha_sold_out: vel.fecha_estimada_sold_out,
+          health_signals: healthMap[p.id] || [],
           precio_m2,
           precio_m2_zona: 0, // se calcula después
           delta_zona_pct: 0, // se calcula después
@@ -395,6 +404,18 @@ export default function CatalogoPage() {
                         {p.delta_zona_pct > 0 ? '+' : ''}{p.delta_zona_pct}%
                       </span>
                       <span style={{fontSize:'9px',color:'var(--dim)'}}>vs ${p.precio_m2_zona.toLocaleString('es-MX')}/m² zona</span>
+                    </div>
+                  )}
+
+                  {/* Health signals */}
+                  {p.health_signals.length > 0 && (
+                    <div style={{display:'flex',flexDirection:'column',gap:'3px'}}>
+                      {p.health_signals.map((h,i) => (
+                        <div key={i} style={{display:'flex',alignItems:'center',gap:'5px',background: h.severity==='critica'?'#FEE2E2':h.severity==='alta'?'#FEF3C7':'var(--bg2)',borderRadius:'var(--rs)',padding:'4px 10px'}}>
+                          <span style={{fontSize:'10px'}}>{h.severity==='critica'?'🚨':h.severity==='alta'?'⚠️':'ℹ️'}</span>
+                          <span style={{fontSize:'10px',color: h.severity==='critica'?'#DC2626':h.severity==='alta'?'#A16207':'var(--mid)'}}>{h.detail}</span>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
