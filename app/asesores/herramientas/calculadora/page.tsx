@@ -9,6 +9,8 @@ interface ProjectOption {
   colonia: string
   alcaldia: string
   plusvalia_pct?: number
+  entrega_quarter?: string
+  entrega_year?: number
 }
 
 interface UnidadOption {
@@ -64,7 +66,7 @@ export default function CalculadoraPage() {
 
   // Cargar proyectos
   useEffect(() => {
-    supabase.from('projects').select('id, nombre, precio_desde, colonia, alcaldia, plusvalia_pct')
+    supabase.from('projects').select('id, nombre, precio_desde, colonia, alcaldia, plusvalia_pct, entrega_quarter, entrega_year')
       .eq('publicado', true).order('nombre')
       .then(({ data }) => setProjects((data as ProjectOption[]) || []))
   }, [])
@@ -108,6 +110,15 @@ export default function CalculadoraPage() {
     if (proj) {
       setPrecio(proj.precio_desde)
       if (proj.plusvalia_pct) setPlusvalia(proj.plusvalia_pct)
+      // Calcular meses restantes hasta entrega
+      if (proj.entrega_quarter && proj.entrega_year) {
+        const quarterMonth: Record<string, number> = { T1: 3, T2: 6, T3: 9, T4: 12 }
+        const entregaMonth = quarterMonth[proj.entrega_quarter] || 6
+        const entregaDate = new Date(proj.entrega_year, entregaMonth - 1, 1)
+        const now = new Date()
+        const diffMeses = Math.max(0, Math.round((entregaDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24 * 30.44)))
+        setMeses(diffMeses)
+      }
     }
   }, [selectedProject])
 
@@ -276,14 +287,29 @@ export default function CalculadoraPage() {
           </div>
           <div>
             <label style={labelStyle}>Mensualidades durante construcción</label>
-            <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
-              <input type="number" min="0" max="60" value={meses} onChange={e => setMeses(Math.max(0, +e.target.value))} style={{width:'70px',padding:'7px 10px',borderRadius:'8px',border:'1px solid var(--bd)',fontSize:'13px',fontFamily:'var(--sans)',outline:'none',textAlign:'center'}} />
-              <div style={{display:'flex',gap:'4px'}}>
-                {[0,6,12,18,24].map(m => (
-                  <button key={m} onClick={() => setMeses(m)} style={{fontFamily:'var(--sans)',fontSize:'10px',padding:'4px 8px',borderRadius:'var(--rp)',border:meses===m?'none':'1px solid var(--bd)',background:meses===m?'var(--dk)':'var(--wh)',color:meses===m?'#fff':'var(--dim)',cursor:'pointer'}}>{m === 0 ? 'Sin' : m}</button>
-                ))}
+            {modo === 'proyecto' && selectedProject ? (
+              <div>
+                <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+                  <div style={{fontSize:'22px',fontWeight:600,color:'var(--dk)'}}>{meses}</div>
+                  <div style={{fontSize:'11px',color:'var(--mid)',lineHeight:1.3}}>meses restantes<br/>hasta entrega</div>
+                </div>
+                {(() => {
+                  const proj = projects.find(p => p.id === selectedProject)
+                  return proj?.entrega_quarter && proj?.entrega_year ? (
+                    <div style={{fontSize:'10px',color:'var(--dim)',marginTop:'4px'}}>Entrega: {proj.entrega_quarter} {proj.entrega_year} · Cálculo automático</div>
+                  ) : null
+                })()}
               </div>
-            </div>
+            ) : (
+              <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                <select value={meses} onChange={e => setMeses(+e.target.value)} style={{width:'100%',padding:'9px 12px',borderRadius:'8px',border:'1px solid var(--bd)',fontSize:'13px',fontFamily:'var(--sans)',outline:'none',cursor:'pointer',appearance:'none' as const,backgroundImage:'url("data:image/svg+xml,%3Csvg width=\'10\' height=\'6\' viewBox=\'0 0 10 6\' fill=\'none\'%3E%3Cpath d=\'M1 1L5 5L9 1\' stroke=\'%23212D30\' stroke-opacity=\'.45\' stroke-width=\'1.3\' stroke-linecap=\'round\'/%3E%3C/svg%3E")',backgroundRepeat:'no-repeat',backgroundPosition:'right 10px center',paddingRight:'30px'}}>
+                  <option value={0}>Sin mensualidades</option>
+                  {[3,6,9,12,15,18,24,30,36,42,48].map(m => (
+                    <option key={m} value={m}>{m} meses{m <= 12 ? '' : m <= 24 ? ' (construcción)' : ' (largo plazo)'}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px'}}>
