@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   keywords: ['departamentos cdmx', 'vivienda nueva', 'preventa cdmx', 'desarrollos inmobiliarios', 'departamentos preventa mexico', 'benito juarez', 'roma norte', 'del valle', 'condesa', 'narvarte'],
   authors: [{ name: 'DesarrollosMX' }],
   creator: 'DesarrollosMX',
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://desarrollosmx.com'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://desarrollosmx.io'),
   openGraph: {
     type: 'website',
     locale: 'es_MX',

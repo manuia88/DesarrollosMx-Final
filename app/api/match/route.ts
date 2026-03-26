@@ -1,8 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { rateLimit } from '@/lib/utils/rateLimit'
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = req.headers.get('x-forwarded-for') || 'unknown'
+    const { ok } = rateLimit(ip + ':match', 30, 60000)
+    if (!ok) return NextResponse.json({ error: 'Demasiadas solicitudes. Intenta en 1 minuto.' }, { status: 429 })
+
     const body = await req.json()
     const { alcaldia, colonia, recamaras, banos, precio_min, precio_max, m2_min, m2_max, query_raw, fuente, asesor_id } = body
 

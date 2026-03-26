@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 
 export default async function sitemap() {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://desarrollosmx.com'
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://desarrollosmx.io'
   const supabase = await createClient()
 
   // Páginas estáticas
