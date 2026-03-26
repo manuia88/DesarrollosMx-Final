@@ -1,4 +1,5 @@
 'use client'
+import { use } from 'react'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -9,7 +10,6 @@ interface Project {
   colonia: string
   alcaldia: string
   precio_desde: number
-  precio_hasta: number
   entrega_quarter: string
   entrega_year: number
   m2_min: number
@@ -29,10 +29,12 @@ interface FolderProject {
 interface Folder {
   id: string
   nombre: string
+  asesor_id: string
   link_views: number
 }
 
-export default function ClienteLinkPage({ params }: { params: { token: string } }) {
+export default function ClienteLinkPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = use(params)
   const [folder, setFolder] = useState<Folder | null>(null)
   const [folderProjects, setFolderProjects] = useState<FolderProject[]>([])
   const [asesor, setAsesor] = useState<{name:string;whatsapp:string;slug:string} | null>(null)
@@ -41,24 +43,20 @@ export default function ClienteLinkPage({ params }: { params: { token: string } 
 
   useEffect(() => {
     async function load() {
-      const { data: f } = await supabase.from('client_folders').select('*').eq('link_token', params.token).single()
+      const { data: f } = await supabase.from('client_folders').select('*').eq('link_token', token).single()
       if (!f) { setLoading(false); return }
       setFolder(f as Folder)
-
-      // Incrementar views
       await supabase.from('client_folders').update({ link_views: (f.link_views || 0) + 1, ultimo_acceso_cliente: new Date().toISOString() }).eq('id', f.id)
-
       const [{ data: fp }, { data: asesorProfile }] = await Promise.all([
         supabase.from('client_folder_projects').select('*, projects(*)').eq('folder_id', f.id).order('orden'),
         supabase.from('profiles').select('name, whatsapp, slug').eq('id', f.asesor_id).single(),
       ])
-
       setFolderProjects((fp as FolderProject[]) || [])
       if (asesorProfile) setAsesor(asesorProfile as typeof asesor)
       setLoading(false)
     }
     load()
-  }, [params.token])
+  }, [token])
 
   if (loading) return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--sans)',color:'var(--mid)'}}>Cargando...</div>
   if (!folder) return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'var(--sans)',color:'var(--mid)'}}>Link no válido o expirado</div>
@@ -70,20 +68,13 @@ export default function ClienteLinkPage({ params }: { params: { token: string } 
           Desarrollos<em style={{fontStyle:'normal',color:'var(--gr2)'}}>MX</em>
         </a>
       </nav>
-
       <div style={{maxWidth:'720px',margin:'0 auto',padding:'40px 20px'}}>
-        {/* HEADER */}
         <div style={{marginBottom:'24px'}}>
           <div style={{fontSize:'11px',fontWeight:600,letterSpacing:'.1em',textTransform:'uppercase',color:'var(--mid)',marginBottom:'6px'}}>Selección personalizada para</div>
           <div style={{fontSize:'26px',fontWeight:600,color:'var(--dk)',marginBottom:'8px'}}>{folder.nombre}</div>
-          {asesor && (
-            <div style={{fontSize:'13px',color:'var(--mid)'}}>
-              Preparado por <strong style={{color:'var(--dk)'}}>{asesor.name}</strong> · DesarrollosMX
-            </div>
-          )}
+          {asesor && <div style={{fontSize:'13px',color:'var(--mid)'}}>Preparado por <strong style={{color:'var(--dk)'}}>{asesor.name}</strong> · DesarrollosMX</div>}
         </div>
 
-        {/* PROYECTOS */}
         <div style={{display:'grid',gap:'16px',marginBottom:'28px'}}>
           {folderProjects.map((fp, i) => {
             const p = fp.projects
@@ -123,7 +114,6 @@ export default function ClienteLinkPage({ params }: { params: { token: string } 
           })}
         </div>
 
-        {/* CONTACTO ASESOR */}
         {asesor && (
           <div style={{background:'var(--dk)',borderRadius:'var(--r)',padding:'24px',textAlign:'center'}}>
             <div style={{fontSize:'15px',fontWeight:500,color:'#fff',marginBottom:'6px'}}>¿Tienes preguntas?</div>
