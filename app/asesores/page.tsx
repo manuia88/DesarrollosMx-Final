@@ -22,7 +22,11 @@ interface Stats {
   leadsNuevos: number
   proyectosGuardados: number
   comisionesProyectadas: number
+  revenueProyectado: number
   clientesActivos: number
+  leadsCerrados: number
+  leadsContactados: number
+  leadsEnProceso: number
   visitasAgendadas: number
   scoreAsesor: number
 }
@@ -32,10 +36,12 @@ export default function AsesorDashboard() {
   const [asesorId, setAsesorId] = useState<string | null>(null)
   const [stats, setStats] = useState<Stats>({
     leadsTotal: 0, leadsNuevos: 0, proyectosGuardados: 0,
-    comisionesProyectadas: 0, clientesActivos: 0,
+    comisionesProyectadas: 0, revenueProyectado: 0, clientesActivos: 0,
+    leadsCerrados: 0, leadsContactados: 0, leadsEnProceso: 0,
     visitasAgendadas: 0, scoreAsesor: 0
   })
   const [feed, setFeed] = useState<FeedItem[]>([])
+  const [urgentProjects, setUrgentProjects] = useState<{nombre:string,meses:number,disponibles:number}[]>([])
   const [proyectosDestacados, setProyectosDestacados] = useState<{id:string;nombre:string;estado:string;precio_desde:number;colonia:string;alcaldia:string;comision_pct:number;estado_publicacion:string}[]>([])
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
@@ -120,17 +126,42 @@ export default function AsesorDashboard() {
 
       const scoreBase = dim_actividad + dim_conversion + dim_engagement + dim_perfil + dim_volumen
 
+      const leadsCerrados = (leads || []).filter(l => l.estado === 'Cerrado').length
+      const leadsContactados = (leads || []).filter(l => l.estado === 'Contactado').length
+      const leadsEnProceso = (leads || []).filter(l => l.estado === 'En proceso').length
+
+      // Revenue proyectado: leads en proceso × probabilidad de cierre × comisión promedio
+      const avgComision = comisionTotal > 0 ? comisionTotal / Math.max(cerrados, 1) : 150000
+      const revenueProyectado = Math.round(leadsEnProceso * 0.3 * avgComision + comisionTotal)
+
       setStats({
         leadsTotal: (leads || []).length,
         leadsNuevos: (leads || []).filter(l => l.estado === 'Nuevo').length,
         proyectosGuardados: (wishlist || []).length,
         comisionesProyectadas: comisionTotal,
+        revenueProyectado,
         clientesActivos: (clientes || []).filter(c => c.temperatura === 'caliente' || c.temperatura === 'tibio').length,
+        leadsCerrados,
+        leadsContactados,
+        leadsEnProceso,
         visitasAgendadas: (visitas || []).length,
         scoreAsesor: scoreBase,
       })
 
       setProyectosDestacados((proyectos || []) as typeof proyectosDestacados)
+
+      // Proyectos urgentes (sold out < 30 días) del wishlist
+      const urgentes: typeof urgentProjects = []
+      for (const w of (wishlist || []) as {project_id:string}[]) {
+        try {
+          const { data: vel } = await supabase.rpc('get_project_velocity', { p_project_id: w.project_id })
+          if (vel?.[0] && vel[0].meses_para_sold_out <= 2) {
+            const proj = (proyectos || []).find((p: any) => p.id === w.project_id) as any
+            urgentes.push({ nombre: proj?.nombre || 'Proyecto', meses: vel[0].meses_para_sold_out, disponibles: vel[0].disponibles })
+          }
+        } catch {}
+      }
+      setUrgentProjects(urgentes)
 
       // Generar feed inteligente
       const feedItems: FeedItem[] = []
@@ -311,7 +342,7 @@ export default function AsesorDashboard() {
         <div style={{display:'flex',gap:'24px'}}>
           {[
             {l:'Tiempo respuesta',v:'—',s:'Próximamente'},
-            {l:'Tasa conversión',v:stats.leadsTotal > 0 ? Math.round((stats.leadsTotal * 0.18)) + '%' : '0%',s:'leads → cierre'},
+            {l:'Tasa conversión',v:stats.leadsTotal > 0 ? Math.round(stats.leadsCerrados / stats.leadsTotal * 100) + '%' : '0%',s:'leads → cierre'},
             {l:'Clientes activos',v:stats.clientesActivos,s:'tibios + calientes'},
           ].map((s,i) => (
             <div key={i} style={{textAlign:'center'}}>
@@ -334,7 +365,7 @@ export default function AsesorDashboard() {
           {label:'Leads generados',value:stats.leadsTotal,sub:`${stats.leadsNuevos} sin atender`,icon:'🎯',href:'/asesores/leads',color:'var(--dk)'},
           {label:'Proyectos guardados',value:stats.proyectosGuardados,sub:'en tu wishlist',icon:'❤️',href:'/asesores/guardados',color:'var(--rd)'},
           {label:'Clientes activos',value:stats.clientesActivos,sub:'tibios y calientes',icon:'👥',href:'/asesores/clientes',color:'#8B5CF6'},
-          {label:'Comisiones proyectadas',value:stats.comisionesProyectadas > 0 ? '$'+Math.round(stats.comisionesProyectadas/1000)+'k' : '$0',sub:'este mes estimado',icon:'💰',href:'/asesores/comisiones',color:'var(--gr)'},
+          {label:'Revenue proyectado',value:stats.revenueProyectado > 0 ? '$'+Math.round(stats.revenueProyectado/1000)+'k' : '$0',sub:`$${Math.round(stats.comisionesProyectadas/1000)}k confirmado + pipeline`,icon:'💰',href:'/asesores/comisiones',color:'var(--gr)'},
         ].map((s,i) => (
           <a key={i} href={s.href} style={{
             background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',
@@ -353,6 +384,42 @@ export default function AsesorDashboard() {
           </a>
         ))}
       </div>
+
+      {/* FUNNEL PERSONAL */}
+      <div style={{background:'var(--wh)',borderRadius:'var(--r)',border:'1px solid var(--bd)',padding:'20px',marginBottom:'20px'}}>
+        <div style={{fontSize:'14px',fontWeight:500,color:'var(--dk)',marginBottom:'14px'}}>🎯 Tu funnel de ventas</div>
+        <div style={{display:'flex',gap:'0',alignItems:'end',height:'70px',marginBottom:'10px'}}>
+          {[
+            {l:'Nuevos',v:stats.leadsNuevos,c:'var(--dk)',pct:100},
+            {l:'Contactados',v:stats.leadsContactados,c:'#1A4A9A',pct:stats.leadsTotal>0?Math.round((stats.leadsTotal-stats.leadsNuevos)/stats.leadsTotal*100):0},
+            {l:'En proceso',v:stats.leadsEnProceso,c:'#A16207',pct:stats.leadsTotal>0?Math.round((stats.leadsEnProceso+stats.leadsCerrados)/stats.leadsTotal*100):0},
+            {l:'Cerrados',v:stats.leadsCerrados,c:'#15803D',pct:stats.leadsTotal>0?Math.round(stats.leadsCerrados/stats.leadsTotal*100):0},
+          ].map((f,i) => (
+            <div key={i} style={{flex:1,textAlign:'center'}}>
+              <div style={{fontSize:'18px',fontWeight:700,color:f.c}}>{f.v}</div>
+              <div style={{background:f.c,borderRadius:'3px',height:`${Math.max(8,f.pct*0.5)}px`,margin:'4px 2px',opacity:0.8}} />
+              <div style={{fontSize:'10px',color:'var(--mid)'}}>{f.l}</div>
+              <div style={{fontSize:'9px',color:'var(--dim)'}}>{f.pct}%</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ÍNDICE DE URGENCIA */}
+      {urgentProjects.length > 0 && (
+        <div style={{background:'#FEE2E2',borderRadius:'var(--r)',border:'1px solid #FECACA',padding:'16px 20px',marginBottom:'20px'}}>
+          <div style={{fontSize:'14px',fontWeight:600,color:'#DC2626',marginBottom:'10px'}}>🚨 Urgencia — Proyectos próximos a agotarse</div>
+          <div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}>
+            {urgentProjects.map((p,i) => (
+              <div key={i} style={{background:'#fff',borderRadius:'var(--rs)',padding:'10px 14px',border:'1px solid #FECACA'}}>
+                <div style={{fontSize:'13px',fontWeight:500,color:'#DC2626'}}>{p.nombre}</div>
+                <div style={{fontSize:'11px',color:'var(--mid)'}}>{p.disponibles} disponibles · Sold out en ~{p.meses} mes{p.meses!==1?'es':''}</div>
+                <div style={{fontSize:'10px',color:'#DC2626',fontWeight:600,marginTop:'4px'}}>⚡ Tu cliente debe decidir YA</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{display:'grid',gridTemplateColumns:'1fr 340px',gap:'20px',alignItems:'start'}}>
 
