@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useRealtimeAlerts } from '@/lib/hooks/useRealtimeAlerts'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, usePathname } from 'next/navigation'
 
@@ -16,6 +17,8 @@ export default function AsesoresLayout({
   const pathname = usePathname()
   const supabase = createClient()
 
+  const { unreadCount } = useRealtimeAlerts([])
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) { router.push('/auth/login'); return }
@@ -27,10 +30,6 @@ export default function AsesoresLayout({
           }
           setLoading(false)
         })
-      // Contar alertas no leídas
-      supabase.from('market_alerts').select('id', { count: 'exact' })
-        .eq('leida', false)
-        .then(({ count }) => setNotifCount(count || 0))
     })
   }, [])
 
@@ -74,9 +73,9 @@ export default function AsesoresLayout({
           <span style={{fontSize:'13px',color:'var(--mid)'}}>Portal Asesor</span>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
-          {notifCount > 0 && (
+          {unreadCount > 0 && (
             <div style={{background:'var(--rd)',color:'#fff',borderRadius:'var(--rp)',fontSize:'11px',fontWeight:600,padding:'2px 8px'}}>
-              {notifCount} alertas
+              {unreadCount} alertas
             </div>
           )}
           <span style={{fontSize:'13px',color:'var(--mid)'}}>{asesorName}</span>

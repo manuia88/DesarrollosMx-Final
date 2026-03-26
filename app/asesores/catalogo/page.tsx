@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useRealtimeInventory } from '@/lib/hooks/useRealtimeInventory'
 import { createClient } from '@/lib/supabase/client'
 
 interface Project {
@@ -47,6 +48,9 @@ export default function CatalogoPage() {
   const [orden, setOrden] = useState('score')
   const [busqueda, setBusqueda] = useState('')
   const supabase = createClient()
+  const { inventory: realtimeInventory } = useRealtimeInventory(
+    projects.map(p => p.id)
+  )
 
   useEffect(() => {
     async function load() {
