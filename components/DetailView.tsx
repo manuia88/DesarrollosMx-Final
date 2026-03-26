@@ -59,6 +59,7 @@ export default function DetailView({
   const [esquemas, setEsquemas] = useState<{id:string,nombre:string,ajuste_precio_pct:number,es_default:boolean}[]>([])
   const [selectedEsquema, setSelectedEsquema] = useState('')
   const [precioAjustado, setPrecioAjustado] = useState(0)
+  const [priceChanges, setPriceChanges] = useState<{precio_anterior:number,precio_nuevo:number,cambio_pct:number,direccion:string,detectado_en:string}[]>([])
   const sessionId = useRef<string>(Math.random().toString(36).slice(2))
   const pageStart = useRef<number>(Date.now())
   const tabStart = useRef<number>(Date.now())
@@ -376,26 +377,60 @@ export default function DetailView({
               </div>
 
               {/* HISTORIAL PRECIO */}
-              {historial.length > 0 && (
-                <>
-                  <div style={{fontSize:'13px',fontWeight:500,color:'var(--dk)',marginBottom:'9px'}}>Historial de precio</div>
-                  <div style={{height:'3px',background:'var(--bd)',borderRadius:'2px',marginBottom:'10px',position:'relative'}}>
-                    <div style={{position:'absolute',left:0,top:0,height:'100%',background:'var(--gr)',borderRadius:'2px',width:'38%'}} />
-                  </div>
-                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:'7px'}}>
-                    {[...historial, {date:'Hoy',precio:project.precio_desde}].map((h,i,arr) => (
-                      <div key={i} style={{textAlign:'center'}}>
-                        <div style={{width:'7px',height:'7px',borderRadius:'50%',background: i===arr.length-1 ? 'var(--gr)' : 'var(--bd)',margin:'0 auto 3px'}} />
-                        <div style={{fontSize:'10px',color: i===arr.length-1 ? 'var(--gr)' : 'var(--mid)',fontWeight: i===arr.length-1 ? 500 : 400}}>${(h.precio/1000000).toFixed(1)}M</div>
-                        <div style={{fontSize:'9px',color:'var(--dim)'}}>{h.date}</div>
+              {/* HISTORIAL DE PRECIO — combina JSON legacy + price_change_log real */}
+              {(historial.length > 0 || priceChanges.length > 0) && (() => {
+                // Construir timeline unificado
+                const timeline: {date:string,precio:number,source:string}[] = []
+                historial.forEach(h => timeline.push({date:h.date,precio:h.precio,source:'manual'}))
+                priceChanges.forEach(pc => {
+                  const d = new Date(pc.detectado_en).toLocaleDateString('es-MX',{month:'short',year:'numeric'})
+                  if (!timeline.find(t => t.date === d)) {
+                    timeline.push({date:d,precio:pc.precio_nuevo,source:'auto'})
+                  }
+                })
+                if (timeline.length === 0 || timeline[timeline.length-1].precio !== project.precio_desde) {
+                  timeline.push({date:'Hoy',precio:project.precio_desde,source:'current'})
+                }
+                const firstPrice = timeline[0]?.precio || project.precio_desde
+                const totalChange = firstPrice > 0 ? Math.round((project.precio_desde/firstPrice-1)*100) : 0
+                const progressPct = Math.min(100, Math.max(5, totalChange * 3))
+
+                return (
+                  <>
+                    <div style={{fontSize:'13px',fontWeight:500,color:'var(--dk)',marginBottom:'9px'}}>
+                      Historial de precio
+                      {priceChanges.length > 0 && <span style={{fontSize:'9px',color:'var(--gr)',marginLeft:'6px',fontWeight:400}}>● Datos en tiempo real</span>}
+                    </div>
+                    <div style={{height:'3px',background:'var(--bd)',borderRadius:'2px',marginBottom:'10px',position:'relative'}}>
+                      <div style={{position:'absolute',left:0,top:0,height:'100%',background:'var(--gr)',borderRadius:'2px',width:`${progressPct}%`}} />
+                    </div>
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:'7px'}}>
+                      {timeline.map((h,i) => (
+                        <div key={i} style={{textAlign:'center'}}>
+                          <div style={{width:'7px',height:'7px',borderRadius:'50%',background: i===timeline.length-1 ? 'var(--gr)' : h.source==='auto' ? 'var(--bl)' : 'var(--bd)',margin:'0 auto 3px'}} />
+                          <div style={{fontSize:'10px',color: i===timeline.length-1 ? 'var(--gr)' : 'var(--mid)',fontWeight: i===timeline.length-1 ? 500 : 400}}>${(h.precio/1000000).toFixed(1)}M</div>
+                          <div style={{fontSize:'9px',color:'var(--dim)'}}>{h.date}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {totalChange !== 0 && (
+                      <div style={{fontSize:'11px',color:totalChange>0?'var(--gr)':'#DC2626',marginBottom:'18px'}}>
+                        {totalChange > 0 ? '↑' : '↓'} {totalChange > 0 ? '+' : ''}{totalChange}% desde lanzamiento
                       </div>
-                    ))}
-                  </div>
-                  <div style={{fontSize:'11px',color:'var(--gr)',marginBottom:'18px'}}>
-                    ↑ +{Math.round((project.precio_desde/historial[0].precio-1)*100)}% desde lanzamiento en preventa
-                  </div>
-                </>
-              )}
+                    )}
+                    {priceChanges.length > 0 && (
+                      <div style={{marginBottom:'18px'}}>
+                        {priceChanges.slice(-3).map((pc,i) => (
+                          <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'4px 0',borderBottom:'1px solid var(--bd2)',fontSize:'10px'}}>
+                            <span style={{color:'var(--mid)'}}>{new Date(pc.detectado_en).toLocaleDateString('es-MX',{day:'numeric',month:'short',year:'numeric'})}</span>
+                            <span style={{color:pc.direccion==='subida'?'#DC2626':'#15803D',fontWeight:500}}>{pc.direccion==='subida'?'📈':'📉'} {pc.cambio_pct>0?'+':''}{pc.cambio_pct}% → ${(pc.precio_nuevo/1e6).toFixed(2)}M</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
 
               {/* COMISIÓN */}
               {(userRole === 'asesor' || userRole === 'superadmin' || userRole === 'desarrollador') && project.comision_pct && (
