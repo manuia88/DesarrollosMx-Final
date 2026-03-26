@@ -152,6 +152,28 @@ export default function ExplorarView({
       }
     }
 
+    // Captura omnicanal → demand_queries
+    if (anyFilter) {
+      try {
+        const precioRanges: Record<string, {min:number|null,max:number|null}> = {
+          'menos4': {min:null,max:4000000}, '4a7': {min:4000000,max:7000000},
+          '7a12': {min:7000000,max:12000000}, 'mas12': {min:12000000,max:null},
+        }
+        const pr = precioRanges[filtros.precio] || {min:null,max:null}
+        await supabase.from('demand_queries').insert({
+          user_id: (await supabase.auth.getUser()).data.user?.id || null,
+          fuente: 'web',
+          alcaldia: filtros.alcaldia || null,
+          recamaras_min: filtros.recamaras ? parseInt(filtros.recamaras) : null,
+          precio_min: pr.min,
+          precio_max: pr.max,
+          results_count: results.length,
+          gap_detected: results.length === 0 && anyFilter,
+          gap_detail: results.length === 0 ? `Sin resultados: ${filtros.alcaldia || 'cualquier zona'}, ${filtros.recamaras || 'cualquier'} rec, ${filtros.precio || 'cualquier precio'}` : null,
+        })
+      } catch { /* silencioso */ }
+    }
+
     // Track evento de búsqueda
     trackEvent('search', undefined, {
       filtros,

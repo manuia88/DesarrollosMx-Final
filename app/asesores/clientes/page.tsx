@@ -76,6 +76,21 @@ function ClientesContent() {
     if (!error && data) {
       setFolders(prev => [data as Folder, ...prev])
       setShowNew(false)
+      // Capturar demanda del cliente a demand_queries
+      try {
+        await supabase.from('demand_queries').insert({
+          user_id: null,
+          asesor_id: asesorId,
+          fuente: 'carpeta',
+          alcaldia: form.zona_preferida || null,
+          recamaras_min: parseInt(form.recamaras_min) || null,
+          recamaras_max: parseInt(form.recamaras_max) || null,
+          precio_min: parseFloat(form.presupuesto_min) || null,
+          precio_max: parseFloat(form.presupuesto_max) || null,
+          results_count: 0,
+          gap_detected: false,
+        })
+      } catch { /* silencioso */ }
       setForm({ nombre:'', email:'', whatsapp:'', presupuesto_min:'', presupuesto_max:'', zona_preferida:'', recamaras_min:'1', recamaras_max:'3', plazo:'6_meses', temperatura:'tibio', notas:'' })
     }
     setSaving(false)

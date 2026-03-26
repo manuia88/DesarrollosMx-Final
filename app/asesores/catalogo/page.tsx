@@ -214,6 +214,36 @@ export default function CatalogoPage() {
     return { color:'#DC2626', label:'ROJO', bg:'#FEE2E2' }
   }
 
+  // Capturar filtros del asesor a demand_queries (debounced)
+  useEffect(() => {
+    const anyFilter = filtros.alcaldia || filtros.tipo || filtros.precio || filtros.recamaras
+    if (!anyFilter || !userId) return
+    const timer = setTimeout(async () => {
+      try {
+        const precioRanges: Record<string,{min:number|null,max:number|null}> = {
+          'menos4':{min:null,max:4000000},'4a7':{min:4000000,max:7000000},
+          '7a12':{min:7000000,max:12000000},'mas12':{min:12000000,max:null},
+        }
+        const pr = precioRanges[filtros.precio] || {min:null,max:null}
+        const resultsCount = projects.filter(p => {
+          if (filtros.alcaldia && p.alcaldia !== filtros.alcaldia) return false
+          if (filtros.recamaras && filtros.recamaras !== '3+' && p.recamaras_min !== parseInt(filtros.recamaras)) return false
+          return true
+        }).length
+        await supabase.from('demand_queries').insert({
+          user_id: userId, asesor_id: userId, fuente: 'catalogo',
+          alcaldia: filtros.alcaldia || null,
+          recamaras_min: filtros.recamaras ? parseInt(filtros.recamaras) : null,
+          precio_min: pr.min, precio_max: pr.max,
+          results_count: resultsCount,
+          gap_detected: resultsCount === 0,
+          gap_detail: resultsCount === 0 ? `Asesor busca: ${filtros.alcaldia || 'cualquier'}, ${filtros.recamaras || 'cualquier'} rec` : null,
+        })
+      } catch { /* silencioso */ }
+    }, 3000) // debounce 3 segundos
+    return () => clearTimeout(timer)
+  }, [filtros.alcaldia, filtros.precio, filtros.recamaras])
+
   const filtered = projects.filter(p => {
     if (busqueda && !p.nombre.toLowerCase().includes(busqueda.toLowerCase()) &&
         !p.colonia.toLowerCase().includes(busqueda.toLowerCase()) &&

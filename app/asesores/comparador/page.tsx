@@ -54,6 +54,26 @@ function ComparadorContent() {
   function addProject(p: Project) {
     if (selected.length >= 5) return
     if (selected.find(x => x.id === p.id)) return
+    // Capturar perfil de demanda inferido al comparar
+    if (selected.length >= 1) {
+      try {
+        const all = [...selected, p]
+        const avgPrecio = all.reduce((s,x) => s + x.precio_desde, 0) / all.length
+        const alcaldias = [...new Set(all.map(x => x.alcaldia))]
+        const recs = [...new Set(all.map(x => x.recamaras_min))]
+        supabase.from('demand_queries').insert({
+          fuente: 'comparador',
+          alcaldia: alcaldias.length === 1 ? alcaldias[0] : null,
+          recamaras_min: recs.length === 1 ? recs[0] : Math.min(...recs),
+          recamaras_max: recs.length === 1 ? recs[0] : Math.max(...recs),
+          precio_min: Math.min(...all.map(x => x.precio_desde)),
+          precio_max: Math.max(...all.map(x => x.precio_desde)),
+          results_count: all.length,
+          gap_detected: false,
+          extras: { compared_projects: all.map(x => x.id) },
+        }).then(() => {})
+      } catch { /* silencioso */ }
+    }
     setSelected(prev => [...prev, p])
     setShowPicker(false)
     setBusqueda('')
