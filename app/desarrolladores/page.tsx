@@ -43,7 +43,7 @@ export default function DashboardPage() {
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) { console.error('No user session'); setLoading(false); return }
 
       const { data: dev } = await supabase
         .from('desarrolladoras')
@@ -51,7 +51,7 @@ export default function DashboardPage() {
         .eq('user_id', user.id)
         .single()
 
-      if (!dev) return
+      if (!dev) { console.error('No dev found for user:', user.id); setLoading(false); return }
       setDevId(dev.id)
       setDevName(dev.nombre)
 
